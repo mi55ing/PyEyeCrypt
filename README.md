@@ -1,7 +1,7 @@
 #**PyEyeCrypt**
 ---
 
-Text encryption GUI in open-source Python 2, with multiple ciphers.
+Text encryption GUI in open-source Python 2, with multiple ciphers, e.g. aes 128.
 
 **Checksums (v1.0):**
 
