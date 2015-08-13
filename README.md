@@ -29,7 +29,7 @@ The new Windows 10 Privacy Statement includes the words:<br>
 'your typed and handwritten words are collected'.
 
 This means that passwords typed by a single recipient when decrypting using
-Win10 would, *unknown to the sender*, jeopardise the sender's" password!
+Win10 would, *unknown to the sender*, jeopardise the sender's password!
 
 This behaviour is akin to a keylogging virus.<br>
 It is therefore NOT suitable to use Win10 with PyEyeCrypt!
