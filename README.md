@@ -8,11 +8,11 @@ Text encryption GUI in open-source Python 2, with multiple ciphers, e.g. aes 128
 
 **Checksums (v1.0):**
 
-MD5 (PyEyeCrypt.py)      = a62fdbd9169e040c65923043b68d8126<br>
-MD5 (aes.py)             = 0382f1d2ec99e4fa1078ebf2a9fa5698<br>
-MD5 (pbkdf2.py)          = aafdc003eeebc03e9f747b24b9421408<br>
-MD5 (PyEyeCrypt.app.tgz) = c033c129d6760be1650bcb39aa57c926<br>
-MD5 (PyEyeCrypt)         = 237213eba0d7671aef8b591904d596a4<br>
+MD5 (PyEyeCrypt.py)                                       = a62fdbd9169e040c65923043b68d8126<br>
+MD5 (aes.py)                                              = 0382f1d2ec99e4fa1078ebf2a9fa5698<br>
+MD5 (pbkdf2.py)                                           = aafdc003eeebc03e9f747b24b9421408<br>
+MD5 (OSX-64bit-binary/PyEyeCrypt.app.tgz)                 = c033c129d6760be1650bcb39aa57c926<br>
+MD5 (ScientificLinux-6.6-64bit-binary/PyEyeCrypt)         = b38044b150be0dad9a22c77b51bd2379<br>
 
 **OSX/Linux Usage:**
 
