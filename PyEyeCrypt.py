@@ -1580,8 +1580,8 @@ class EntropyWindow():
         start_time=time()
         self.entropyKeyEntryWidget.focus_force()
         self.entropywin.grab_set()
-        self.entropywin.attributes("-topmost", True)
-        self.entropyKeyEntryWidget.wait_window(self.entropywin)
+        #self.entropywin.attributes("-topmost", True)
+        #self.entropyKeyEntryWidget.wait_window(self.entropywin)
 
    def makeentropyentry(self,parent,width=None, **options):
         entry = Entry(parent, **options)
@@ -1682,6 +1682,13 @@ loopcount=0
 
 # Set up the main window geometry.
 root.wm_geometry("%dx%d%+d%+d" % (frame_width,frame_height,0, 0))
+
+# Get some entropy from the Keyboard, to use as a seed for 
+# the Pseudo Random Number Generator (PRNG).
+# Note: we will ONLY ever use PRNG in XOR with "os.urandom"  
+desiredEntropyBits=256
+initialEntropyWindow=EntropyWindow(desiredEntropyBits)
+
 #####################################################
 # Small diversion from main loop to bring the gui window to the foreground 
 # For now, I'll just go with deiconify(),lift(),focus_force(), though this does not work on OSX.
@@ -1696,6 +1703,8 @@ if theOS=="Darwin":
     if theKernelVersionMajor=="10.":
         print "Kernel Version is 10.X, using osascript to force focus.."
         os.system('''/usr/bin/osascript -e 'tell app "Finder" to set frontmost of process "Python" to true' ''')
+    # Whatever Kernel version/flavour of OSX we are in, make the entropy window topmost..
+    initialEntropyWindow.entropywin.attributes("-topmost", True)
 elif theOS=="Windows":
    # Both print and showerror...
    print "==============================================================="
@@ -1723,12 +1732,8 @@ else:
 # END Small diversion from main loop to bring gui window to foreground
 #####################################################
 
-
-# Get some entropy from the Keyboard, to use as a seed for 
-# the Pseudo Random Number Generator (PRNG).
-# Note: we will ONLY ever use PRNG in XOR with "os.urandom"  
-desiredEntropyBits=256
-initialEntropyWindow=EntropyWindow(desiredEntropyBits)
+# Wait for the Entropy to be gathered before checking sessionseed...
+initialEntropyWindow.entropyKeyEntryWidget.wait_window(initialEntropyWindow.entropywin)
 
 # Check the "sessionseedhex" exists, and has enough entropy..
 try:
