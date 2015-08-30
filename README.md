@@ -1,43 +1,53 @@
 #**PyEyeCrypt**
 ---
 
-Text encryption GUI in open-source Python (2.7.10), with multiple ciphers e.g. aes 128.
+Python-based Open Source Text Encryption GUI, with multiple ciphers e.g. aes 128.
 
 ![ScreenShot](screenshot.jpg)
 
 
-**Checksums (v1.0):**
+**Checksums (v1.1):**
 
-MD5 (PyEyeCrypt.py)                                       = 195a3938d3985b25c0e7a8b842c46526<br>
-MD5 (aes.py)                                              = 0382f1d2ec99e4fa1078ebf2a9fa5698<br>
-MD5 (pbkdf2.py)                                           = aafdc003eeebc03e9f747b24b9421408<br>
-MD5 (executables/OSX-10.6+_64bit/PyEyeCrypt.app.tgz)      = d266bbcdb89f19b13a2f814a7e1d1784<br>
-MD5 (executables/ScientificLinux5.11_64bit/PyEyeCrypt)    = 2a686000bad0aacdc6b9415f284b6a8c<br>
-MD5 (executables/ScientificLinux6.6_64bit/PyEyeCrypt)     = 7ed79e1845625eb6a9de825f0420d9f8<br>
+MD5 (PyEyeCrypt.py)                                                  = 0cceaff22368c173469bf95506e701fc<br>
+MD5 (aes.py)                                                         = 0382f1d2ec99e4fa1078ebf2a9fa5698<br>
+MD5 (pbkdf2.py)                                                      = aafdc003eeebc03e9f747b24b9421408<br>
+MD5 (executables/OSX_64bit/PyEyeCrypt.app.tgz)                       = fec736a5a36db11cfa1e3ca6f1d91ee3<br>
+MD5 (executables/Win7+_64bit/PyEyeCrypt.exe)                         = 867d495f9aa73fea7d1cb940e73511f8<br>
+MD5 (executables/Win7+_64bit/PyEyeCrypt.exe.manifest)                = d46e83a15af07526e88cbe8b79722acc<br>
+MD5 (executables/ScientificLinux5.11_64bit/PyEyeCrypt)               = 35ad9a6afee62930c9d3f203d21c6b11<br>
+MD5 (executables/ScientificLinux6.6_64bit/PyEyeCrypt)                = 7e531fdb7d7cb4a0d3c94e25771b64de<br>
+MD5 (keyblc-crop-framestage4-huge-krm-Enter-del-bkslpipe-arrows.gif) = df94e49c5ed49837b3c32b97d5fa2ad9<br>
+MD5 (keybuc-crop-framestage4-huge-krm-Enter-del-bkslpipe-arrows.gif) = 96ad7e23452acec7f3ac7b435b4e7b45<br>
 
 **OSX/Linux Usage:**
 
-With Python (requires tkinter):
+With Python (2.7.10/requires tkinter):
 
 ```python PyEyeCrypt.py```
 
 Without Python:
 
 Unix: ```./PyEyeCrypt```
+(verified to work under Scientific Linux 5.11 / 6.6 (the 6.6 binary also works under Debian "jessie/sid").
 
-OSX : Untar the .tgz file & drag the app onto your Dock, Desktop or wherever. Double-click.
+OSX : Untar the .tgz file & drag the app onto your Dock, Desktop or wherever. Double-click.<br>
+(should work on Snow Leopard and later)
 
 **Windows:**
 
+Simply download and double-click the ```PyEyeCrypt.exe``` file in the ```pyinstaller-executable-Win7-64bit``` directory.
+
+**'Naughty' Operating Systems:**
+
 The new Windows 10 Privacy Statement includes the words:<br>
-'your typed and handwritten words are collected'.
+'Your typed and handwritten words are collected.'<br>
 
-This means that passwords typed by a single recipient when decrypting using
-Win10 would, *unknown to the sender*, jeopardise the sender's password!
-
+Windows is not alone in collecting private user data. Ubuntu's unity desktop also collected some user data and sent it to 'Cannonical'.<br>
 This behaviour is akin to a keylogging virus.<br>
-It is therefore NOT suitable to use Win10 with PyEyeCrypt!
 
-I am working on countermeasures; such as a mouse-operated keypad for Password & Clear-Text entry.
-I would welcome suggestions on such countermeasures.
+PyEyeCrypt will still run when keylogging is suspected, but ClearText and Passwords MUST be entered using the on-screen 'clickable' keyboards.
 
+**Uninstall:**
+
+Executable: Simply delete the executable file (it uses no other dll's, nor leaves anything else hidden anywhere, except Windows, where you should also delete the "manifest" file PyEyeCrypt.exe.manifest)<br>
+Python    : Delete the downloaded files/directory. PyEyeCrypt does not create anything outside the run-area.

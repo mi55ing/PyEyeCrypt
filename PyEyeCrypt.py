@@ -2,7 +2,7 @@
 # THE ABOVE LINE IS REQUIRED TO ENABLE UTF-8 DISPLAY IN THE TEXT WIDGETS.            # 
 ######################################################################################
 #                                                                                    #
-PyEyeCryptVersion="v1.0"                                                             #
+PyEyeCryptVersion="v1.1"                                                             #
 #                                                                                    #
 ######################################################################################
 #                                                                                    #
@@ -31,6 +31,17 @@ PyEyeCryptVersion="v1.0"                                                        
 # Change Log                                                                         #
 # ==========                                                                         #
 #                                                                                    #
+# v1.1:                                                                              #
+# o Added concept of "isBadOS" to enforce spying countermeasures like clickable      # 
+#   keyboard.                                                                        #
+#   - PyEyeCrypt can now run under what it considers to be 'bad' operating systems.  #
+# o Added "Click-to-type" mode so users can select improved security of clickable    #
+#   keyboards, even if the OS is not considered 'bad'.                               # 
+# o Fixed a potential bug with PBKDF2iterations being '0'.                           #
+# o Made Timestamps of keypresses in EntropyWindow visible.                          #
+# o HexCheck() now checks EncryptedText regardless of "Hex Mode" checkbox status.    #
+# o Decryption checks that a Password is present when a Key is not being 'kept'.     #
+#                                                                                    #
 # v1.0:                                                                              #
 # Initial Release                                                                    # 
 #                                                                                    #
@@ -38,8 +49,15 @@ PyEyeCryptVersion="v1.0"                                                        
 # Future Improvements                                                                #
 # ===================                                                                #
 # 1: Message Authentication                                                          #
-# 2: Add Win10 spying "Countermeasures"; allow to run in Win10.                      #
-# 3: Add a "characters to complete block" counter under/on top of Cleartext          #
+# 2: Add MORE Win10 spying "Countermeasures";                                        #
+#    -add option to randomise key positions on clickable keyboard                    #
+#    -randomise the clickabe keyboard overall window position slightly +-30 pixels   #
+# 3: Add a "characters to complete block" counter under/on top of Cleartext.         #
+#     -remove the annoying message about padding.                                    #
+# 4: Place Clickable Keyboard higher up if it exceeds the screen boundaries.         #
+# 5: Allow use of SHA3 to replace SHA2 in PBKDF2 key generation.                     #
+#                                                                                    #
+#                                                                                    #
 #                                                                                    #
 ######################################################################################
 # Import the packages Python needs                                                   #
@@ -59,6 +77,14 @@ from idlelib import ToolTip
 import _tkinter
 from Tkinter import *
 
+if getattr(sys, 'frozen', False):
+   # we are running in a |PyInstaller| bundle
+   basedir = sys._MEIPASS
+else:
+   # we are running in a normal Python environment
+   basedir = os.getcwd()
+
+
 ######################################################################################
 # Define the Class for the Main Window                                               #
 ######################################################################################
@@ -68,6 +94,9 @@ class MainWindowFrame(Frame):
    # Create Widgets in the main gui window
    #####################################################
    def createWidgets(self):
+       #Need the global variable isBadOS to decide whether to activate ClearText widget
+       global isBadOS
+
        Label(self, text="Clear Text").grid(row=9, column=20, pady=(20,0), sticky=E)
        self.ClearTextScrollbar = Scrollbar(self, orient=VERTICAL);
        self.ClearText = Text(self, width=100, height=70, yscrollcommand=self.ClearTextScrollbar.set, background="black", foreground="green", insertbackground="green", highlightthickness=0, undo=True);
@@ -79,6 +108,16 @@ class MainWindowFrame(Frame):
        self.columnconfigure(21, weight=1)
        self.rowconfigure(10, weight=1)
        self.rowconfigure(19, weight=1)
+       if isBadOS==1:
+          self.ClearText.config(state=DISABLED)
+          # NOTE: You can do this at least two ways, possibly three. I chose option 1: 
+          # 1: Binding ButtonRelease-1 on the mouse means that the INSERT cursor always 
+          #    goes to the position specified in callbackFunctionClearTextClickableKeyboard (i.e. clicked mouse position) 
+          # 2: Binding to Button-1, but having a "self.after" inside callbackFuctionClearTextClickableKeyboard, delaying 
+          #    by 10ms means the INSERT position is correctly set to the CURRENT mouse pos.
+          # 3: Modify the ClearText Widget <Button-1> binding to delay by 10ms.
+          self.ClearText.bind("<ButtonRelease-1>", self.callbackFunctionClearTextClickableKeyboard)
+       self.ClearTextKeyboardOpened=0
 
        self.DeleteClearTextButton = Button(self)
        self.DeleteClearTextButton["text"] = "Delete"
@@ -107,28 +146,43 @@ class MainWindowFrame(Frame):
        self.ChosenEncryptMethod=StringVar()
        self.ChosenEncryptMethod.set("AES-128 CBC") #default value
        self.EncryptMethod = OptionMenu( self, self.ChosenEncryptMethod, "AES-128 CBC", "AES-128 ECB");
-       self.EncryptMethod.grid(row=14,column=27,pady=(40,0),padx=10,sticky=S)
+       self.EncryptMethod.grid(row=13,column=27,pady=(40,0),padx=10,sticky=S)
        ToolTip.ToolTip(self.EncryptMethod, 'Cipher Mode: CBC-mode is recommended.')
-       
+              
        self.Encrypt = Button(self)
        self.Encrypt["text"] = ">>ENCRYPT>>"
        self.Encrypt["fg"] = "red"
        self.Encrypt["command"] = self.ValidateEncryptText
-       self.Encrypt.grid(row=15,column=27, pady=(0,0),padx=10, sticky=S+N)      
+       self.Encrypt.grid(row=14,column=27, pady=(0,0),padx=10, sticky=S+N)      
        
        self.Decrypt = Button(self)
        self.Decrypt["text"] = "<<DECRYPT<<"
        self.Decrypt["fg"] = "red"
        self.Decrypt["command"] = self.ValidateDecryptText
-       self.Decrypt.grid(row=16,column=27, pady=(0,00),padx=10, sticky=N)      
+       self.Decrypt.grid(row=15,column=27, pady=(0,00),padx=10, sticky=N)      
         
        self.CheckBoxValueHexMode=IntVar()
        self.HexModeButton = Checkbutton(self)
        self.HexModeButton["text"] = "Hex Mode"
        self.HexModeButton["command"] = self.HexEnable
        self.HexModeButton["variable"] = self.CheckBoxValueHexMode
-       self.HexModeButton.grid(row=17,column=27,padx=(80,60), pady=(0,0), sticky=N+W) 
+       self.HexModeButton.grid(row=16,column=27,padx=(80,60), pady=(0,0), sticky=N+W) 
        ToolTip.ToolTip(self.HexModeButton, 'Hex Mode: Used for trying out Known Answer Test (KAT) Vectors')       
+
+       self.CheckBoxValueClickKeyMode=IntVar()
+       self.ClickKeyModeButton = Checkbutton(self)
+       self.ClickKeyModeButton["text"] = "Click-to-type"
+       self.ClickKeyModeButton["command"] = self.ClickToTypeEnable
+       self.ClickKeyModeButton["variable"] = self.CheckBoxValueClickKeyMode
+       self.ClickKeyModeButton.grid(row=17,column=27,padx=(80,60), pady=(0,0), sticky=N+W) 
+       self.ClickKeyModeButton.select()
+       self.ClickKeyModeButton.config(state=DISABLED)
+       ToolTip.ToolTip(self.ClickKeyModeButton, 'Click-to-type Mode: Improves user security with "Clickable Keyboards", if keylogging is suspected.')       
+       if isBadOS==0:
+          self.ClickKeyModeButton.config(state=NORMAL) 
+          self.ClickKeyModeButton.deselect()
+          #Disable the "click-to-type" button until after we prepare the application and display our message to the user regarding bad OSes.
+          self.ClickKeyModeButton.config(state=DISABLED)
 
        self.CheckBoxValueDisplayEyes=IntVar()
        self.DisplayEyesButton = Checkbutton(self)
@@ -146,9 +200,19 @@ class MainWindowFrame(Frame):
        self.DisplayDonateButton.grid(row=19,column=27,padx=(80,60), pady=(0,10), sticky=N+W) 
        self.DisplayDonateButton.config(state=DISABLED)
 
-       self.user_entry_password= self.makeentry(self, 32, show="*", background="black",foreground="yellow", insertbackground="yellow",highlightthickness=0);
+       self.user_entry_password= self.makeentry(self, 32, show="*", background="black",foreground="yellow", insertbackground="yellow",highlightthickness=0, disabledforeground="yellow",disabledbackground="black");
        self.user_entry_password.grid( row= 29, column=27,pady=(80,0), sticky=W+S)
        Label(self, text="Password (Secret!):").grid(row=29, column=21, padx=(10,0),pady=(80,0), sticky=E+S)
+       if isBadOS==1:
+          self.user_entry_password.config(state=DISABLED)
+          # NOTE: ENTRY WIDGETS behave differently to Text widgets. 
+          # Firstly, they dont accept 'tags' so mycurs / mycurslinehi won't work.
+          # (these user tags were the reason i used ButtonRelease-1 for the callback in the text widget, as they updated the cursor position properly when using ButtonRelease-1)
+          # Next, if we trigger on ButtonRelease-1, the widget appears to become active again on Button-1 (despite being DISABLED direcly above here!).
+          # This, I think, is wholly different to the text widget behaviour; which stays disabled if we trigger on ButtonRelease-1.
+          # So, we trigger on Button-1 and immediately DISABLE the widget in the callback.
+          self.user_entry_password.bind("<Button-1>", self.callbackFunctionPasswordClickableKeyboard)
+       self.PasswordKeyboardOpened=0
 
        self.CheckBoxValueDisplayPassword=IntVar()
        self.DisplayPasswordButton = Checkbutton(self)
@@ -159,7 +223,8 @@ class MainWindowFrame(Frame):
 
        self.user_entry_salt= self.makeentry(self, 32, background="black",foreground="yellow", insertbackground="yellow",highlightthickness=0, disabledforeground="gray50",disabledbackground="gray81");
        self.user_entry_salt.grid( row= 30, column=27,pady=(0,0), sticky=W+N+S)
-       Label(self, text="Password Salt:").grid(row=30, column=21, padx=(10,0),pady=(0,0), sticky=E)
+       self.user_entry_salt_label=Label(self, fg="gray50" ,text="Password Salt:")
+       self.user_entry_salt_label.grid(row=30, column=21, padx=(10,0),pady=(0,0), sticky=E)
        self.user_entry_salt.config(state=DISABLED)
        ToolTip.ToolTip(self.user_entry_salt, "Salt: Generated at random for each encryption, combined with 'Password' to make 'Key'. NEVER re-use a 'Salt'.")       
        self.CheckBoxValueEnableSaltEntry=IntVar()
@@ -178,7 +243,8 @@ class MainWindowFrame(Frame):
 
        self.user_entry_key= self.makeentry(self, 32, show="*", background="black",foreground="yellow", insertbackground="yellow",highlightthickness=0, disabledforeground="gray50",disabledbackground="gray81");
        self.user_entry_key.grid( row= 31, column=27,pady=(0,0), sticky=W+N+S)
-       Label(self, text="Key (Secret!):").grid(row=31, column=21, padx=(10,0),pady=(0,0), sticky=E+N)
+       self.user_entry_key_label=Label(self, fg="gray50", text="Key (Secret!):")
+       self.user_entry_key_label.grid(row=31, column=21, padx=(10,0),pady=(0,0), sticky=E+N)
        self.user_entry_key.config(state=DISABLED)
        ToolTip.ToolTip(self.user_entry_key, "Key: Generated from the 'Password' and 'Salt' for each encryption action.")       
 
@@ -205,7 +271,8 @@ class MainWindowFrame(Frame):
 
        self.user_entry_iv= self.makeentry(self, 32, background="black",foreground="yellow", insertbackground="yellow",highlightthickness=0, disabledforeground="gray50",disabledbackground="gray81");
        self.user_entry_iv.grid( row= 32, column=27,pady=(0,0), sticky=W+N+S)
-       Label(self, text="IV:").grid(row=32, column=21, padx=(10,0),pady=(0,0), sticky=E+N)
+       self.user_entry_iv_label=Label(self, fg="gray50", text="IV:")
+       self.user_entry_iv_label.grid(row=32, column=21, padx=(10,0),pady=(0,0), sticky=E+N)
        self.user_entry_iv.config(state=DISABLED)
        ToolTip.ToolTip(self.user_entry_iv, 'IV: Initialisation Vector, generated randomly for each message in certain modes (e.g. CBC). NEVER re-use an IV.')  
 
@@ -225,7 +292,8 @@ class MainWindowFrame(Frame):
 
        self.user_entry_pbkdf2_iter= self.makeentry(self, 32, show="", background="black",foreground="yellow", insertbackground="yellow",highlightthickness=0, disabledforeground="gray50",disabledbackground="gray81");
        self.user_entry_pbkdf2_iter.grid( row= 33, column=27,pady=(0,20),padx=(0,0), sticky=W+N)
-       Label(self, text="PBKDF2 iterations").grid(row=33, column=21, padx=(10,0),pady=(0,20), sticky=E+N)
+       self.user_entry_pbkdf2_iter_label=Label(self, fg="gray50", text="PBKDF2 iterations")
+       self.user_entry_pbkdf2_iter_label.grid(row=33, column=21, padx=(10,0),pady=(0,20), sticky=E+N)
        self.user_entry_pbkdf2_iter.insert(0,"16384")
        self.user_entry_pbkdf2_iter.config(state=DISABLED)
        ToolTip.ToolTip(self.user_entry_pbkdf2_iter, 'PBKDF2 iterations: The number of cycles used in Key derivation. If you change this, you must agree it with the recipient.')       
@@ -258,7 +326,12 @@ class MainWindowFrame(Frame):
           self.user_entry_password.configure(show="")
        else:
           self.user_entry_password.configure(show="*")
-
+       # If a Clickable Keyboard exists, raise it to the front. Users hate the keyboard disappearing
+       # when they try to reveal/hide the password..
+       if self.PasswordKeyboardOpened==1:
+          self.PasswordClickable.parentwidgetKeyboardWin.focus_force() #<-This appears to help in linux; providing immediate keyboard focus on raise.
+          self.PasswordClickable.parentwidgetKeyboardWin.lift()
+   
    def ShowHideKey(self):
        if self.CheckBoxValueDisplayKey.get()==1:
           self.user_entry_key.configure(show="")
@@ -284,26 +357,34 @@ class MainWindowFrame(Frame):
    def EnableKeyEntry(self):
       if self.CheckBoxValueEnableKeyEntry.get()==1:
          self.user_entry_key.config(state=NORMAL)
+         self.user_entry_key_label.configure(fg="black")
       else:
+         self.user_entry_key_label.configure(fg="gray50")
          self.user_entry_key.config(state=DISABLED)
 
    def EnableSaltEntry(self):
       if self.CheckBoxValueEnableSaltEntry.get()==1:
          self.user_entry_salt.config(state=NORMAL)
+         self.user_entry_salt_label.configure(fg="black")
       else:
+         self.user_entry_salt_label.configure(fg="gray50")
          self.user_entry_salt.config(state=DISABLED)
 
    def EnableIvEntry(self):
       if self.CheckBoxValueEnableIvEntry.get()==1:
          self.user_entry_iv.config(state=NORMAL)
+         self.user_entry_iv_label.configure(fg="black")
       else:
+         self.user_entry_iv_label.configure(fg="gray50")
          self.user_entry_iv.config(state=DISABLED)
 
    def EnablePBKDF2Entry(self):
       if self.CheckBoxValueEnablePBKDF2Entry.get()==1:
          tkMessageBox.showwarning("Warning", "Changing PBKDF2 iterations: \n\nIf you change this value, you MUST tell your intended recipient, otherwise they will not be able to generate the Key \n-even if they have the correct password!" )
          self.user_entry_pbkdf2_iter.config(state=NORMAL)
+         self.user_entry_pbkdf2_iter_label.configure(fg="black")
       else:
+         self.user_entry_pbkdf2_iter_label.configure(fg="gray50")
          self.user_entry_pbkdf2_iter.config(state=DISABLED)
       
    def EnableSaltOverride(self):
@@ -317,13 +398,172 @@ class MainWindowFrame(Frame):
    def EnableIvOverride(self):
       if self.CheckBoxValueEnableIvOverride.get()==1:
          tkMessageBox.showwarning("Encryption Warning", "Keeping 'IV': This should only ever be used for testing purposes. \n\nNEVER re-use an IV for an encrypted message." )
+       
+
+   #####################################################
+   # Function to handle the "Click-to-type" button
+   #####################################################
+   def ClickToTypeEnable(self):
+      if self.CheckBoxValueClickKeyMode.get()==0:
+         # We are disabling the "Click-to-type" mode.
+         # Kill all clickable keyboards.
+         # Set cleartext and password widget status to 'normal'.
+         # Delete the custom tags for cursor/highlight
+         # Unbind the ButtonRelease-1 or Button-1 for the two previously disabled widgets.
+         #   - Note: ButtonRelease-1 for text widget, Button-1 for Entry widget (due to cursor).
+         # Try to restore focus to the widget which should have focus.
+         self.ClearText.config(state=NORMAL)
+         self.user_entry_password.config(state=NORMAL)
+         self.ClearText.tag_remove('mycurs', 1.0, 'end')
+         self.ClearText.tag_remove('mycurslinehi', 1.0, 'end')
+         self.ClearText.unbind("<ButtonRelease-1>")
+         self.user_entry_password.unbind("<Button-1>")
+         if self.PasswordKeyboardOpened==1:
+            self.PasswordClickable.on_closing_parentwidgetKeyboardWin()
+         if self.ClearTextKeyboardOpened==1:
+            self.ClearTextClickable.on_closing_parentwidgetKeyboardWin()
+         # EXPLICITY tell the code here to focus on something.
+         self.predisabledfocussedwidget.focus_force()
+      else:
+         # We are enabling "Click-to-type" mode.
+         # Bind the ButtonRelease-1 or Button-1 for the two previously enabled widgets.
+         #   - Note: ButtonRelease-1 for text widget, Button-1 for Entry widget (due to cursor).
+         # Make sure we deactivate the cleartext and password widgets.
+         # If current focus is on ClearText widget, open a clickable keyboard (use a dummy event parameter).
+         # If current focus is on Password widget, open a clickable keyboard (use a dummy event parameter).
+         self.predisabledfocussedwidget=self.focus_get()
+         self.ClearText.bind("<ButtonRelease-1>", self.callbackFunctionClearTextClickableKeyboard)
+         self.user_entry_password.bind("<Button-1>", self.callbackFunctionPasswordClickableKeyboard)
+         self.ClearText.config(state=DISABLED)
+         self.user_entry_password.config(state=DISABLED)
+         if self.focus_get() == self.ClearText:
+            self.EncryptedText.focus_force()
+            self.callbackFunctionClearTextClickableKeyboard("dummy")
+         if self.focus_get() == self.user_entry_password:
+            self.callbackFunctionPasswordClickableKeyboard("dummy")
+
+
+   #####################################################
+   # When in Click-to-type mode, This function is called 
+   # by the Event Handler when the parent-window "ClearText" 
+   # widget is clicked. 
+   # It has to be a function; the eventhandler requires 
+   # it to be so, and to expect the "event" argument.
+   #####################################################
+   def callbackFunctionClearTextClickableKeyboard(self,event):
+      # Place the focus back in ClearText if "Click-to-type" is deselected. 
+      self.predisabledfocussedwidget=self.ClearText
+
+      # Configure a tag called "mycurs" (the insert position) and "mycurslinehi" (the line is highlighted slightly)
+      # After Clearing any previous "mycurs" cursor, set the "cursor" to the correct position.
+      # Then clear out any "mycurslinehi" highlights, and re-add at the current line.
+      # Since we KNOW the mouse was clicked in order to get here, set the INSERT point to "CURRENT" (mouse-click position).
+      # I bound the call to this Class/Function (e.g from the ClearText Widget) to the <Button-Release-1> event, 
+      self.ClearText.tag_configure("mycurs", background="gray40")
+      self.ClearText.tag_remove('mycurs', 1.0, 'end')
+      self.ClearText.mark_set('insert' , 'current')
+      self.ClearText.tag_add("mycurs", INSERT+'-0c', INSERT+'+1c')
+      self.ClearText.see(INSERT)
+      
+      # This tag sets the rest of the line to a slightly more visible grey 
+      # if the cursor is at the end of the text.
+      self.ClearText.tag_configure("mycurslinehi", background="grey20")
+      self.ClearText.tag_remove('mycurslinehi', 1.0, 'end')
+      self.ClearText.tag_add("mycurslinehi", 'insert lineend', 'insert lineend'+'+1c')
+
+      # If We have an already existing ClearText Clickable Keyboard,  
+      # we "lift()" instead of force_focus and grab_set.
+      if self.ClearTextKeyboardOpened==1:
+         self.ClearTextClickable.parentwidgetKeyboardWin.focus_force() #<-This appears to help in linux; providing immediate keyboard focus on raise.
+         self.ClearTextClickable.parentwidgetKeyboardWin.lift()
+         
+         # Get the parent Window's x,y position so we can use it together with the ClearText widget's size/offset
+         # to correctly position the Clickable Keyboard.
+         MainWindowOffsetX=self.winfo_rootx()
+         MainWindowOffsetY=self.winfo_rooty()
+         
+         # Get the ClearText widget's position, height & width so we can position the offset of the Clickable Keyboard
+         ClearTextGeometry=self.ClearText.winfo_geometry()
+         ClearTextWidth  = ClearTextGeometry.split('+')[0].split('x')[0]
+         ClearTextHeight = ClearTextGeometry.split('+')[0].split('x')[1]
+         ClearTextOffsetX= ClearTextGeometry.split('+')[1]
+         ClearTextOffsetY= ClearTextGeometry.split('+')[2]
+
+         # Get the position to put the Ckickable Keyboard
+         KeyboardOffsetX= int(MainWindowOffsetX) + int(ClearTextOffsetX) 
+         KeyboardOffsetY= int(MainWindowOffsetY) + int(ClearTextOffsetY) + int(ClearTextHeight)
+         self.ClearTextClickable.parentwidgetKeyboardWin.geometry("%dx%d+%d+%d" % ((self.ClearTextClickable.parentwidgetKeyboardWin.winfo_width(),self.ClearTextClickable.parentwidgetKeyboardWin.winfo_height()) + (KeyboardOffsetX,KeyboardOffsetY)))
+         return
+      else:
+         # We don't have a ClickableKeyboard instance yet, so create
+         # one named "self.ClearTextClickable", and set the class
+         # variable "ClearTextKeyboardOpened".
+         self.ClearTextClickable=ClickableKeyboard(self,self.ClearText)
+         self.ClearTextKeyboardOpened=1         
+
+
+   #####################################################
+   # When in Click-to-type mode, This function is called 
+   # by the Event Handler when the parent-window "Password" 
+   # widget is clicked. 
+   # It has to be a function; the eventhandler requires 
+   # it to be so, and to expect the "event" argument.
+   #####################################################
+   def callbackFunctionPasswordClickableKeyboard(self,event):
+      # Place the focus back in user_entry_password if "Click-to-type" is deselected. 
+      self.predisabledfocussedwidget=self.user_entry_password
+
+      # The Password widget becomes ACTIVE/NORMAL again after pressing "BKSP" and getting a "bad entry index", and then clicking on the Password widget.
+      # Could be safer to have it here, as insurance against a TclError allowing manual entry. 
+      self.user_entry_password.config(state=DISABLED)
+
+      # If We have an already existing Password Clickable Keyboard,  
+      # we "lift()" instead of force_focus and grab_set.
+      if self.PasswordKeyboardOpened==1:
+         self.PasswordClickable.parentwidgetKeyboardWin.focus_force() #<-This appears to help in linux; providing immediate keyboard focus on raise.
+         self.PasswordClickable.parentwidgetKeyboardWin.lift()
+         
+         # Get the parent Window's x,y position so we can use it together with the ClearText widget's size/offset
+         # to correctly position the Clickable Keyboard.
+         MainWindowOffsetX=self.winfo_rootx()
+         MainWindowOffsetY=self.winfo_rooty()
+         
+         # Get the Password widget's position, height & width so we can position the offset of the Clickable Keyboard
+         PasswordGeometry=self.user_entry_password.winfo_geometry()
+         PasswordWidth  = PasswordGeometry.split('+')[0].split('x')[0]
+         PasswordHeight = PasswordGeometry.split('+')[0].split('x')[1]
+         PasswordOffsetX= PasswordGeometry.split('+')[1]
+         PasswordOffsetY= PasswordGeometry.split('+')[2]
+
+         # Get the position to put the Ckickable Keyboard
+         KeyboardOffsetX= int(MainWindowOffsetX) + int(PasswordOffsetX) 
+         KeyboardOffsetY= int(MainWindowOffsetY) + int(PasswordOffsetY) + int(PasswordHeight)
+
+         # Windows has an annoying habit of masking a little of the Password Entry widget with the Password Clickable Keyboard Window.
+         # so I add 5px to the y-value.
+         global theOS
+         if theOS=="Windows":
+            KeyboardOffsetY=KeyboardOffsetY+5
+            
+         self.PasswordClickable.parentwidgetKeyboardWin.geometry("%dx%d+%d+%d" % ((self.PasswordClickable.parentwidgetKeyboardWin.winfo_width(),self.PasswordClickable.parentwidgetKeyboardWin.winfo_height()) + (KeyboardOffsetX,KeyboardOffsetY)))
+         return
+      else:
+         # We don't have a ClickableKeyboard instance yet, so create
+         # one named "self.PasswordClickable", and set the class
+         # variable "PasswordKeyboardOpened".
+         self.PasswordClickable=ClickableKeyboard(self,self.user_entry_password)
+         self.PasswordKeyboardOpened=1         
 
 
    #####################################################
    # Functions to clean the windows
    #####################################################
    def DeleteClearText(self):
+       if self.CheckBoxValueClickKeyMode.get()==1:
+          self.ClearText.config(state=NORMAL)
        self.ClearText.delete(1.0,END) 
+       if self.CheckBoxValueClickKeyMode.get()==1:
+          self.ClearText.config(state=DISABLED)
 
    def DeleteEncryptedText(self):
        self.EncryptedText.delete(1.0,END)
@@ -335,8 +575,46 @@ class MainWindowFrame(Frame):
    def CleanStartFirstEyesDonate(self):
        self.DisplayEyesButton.config(state=NORMAL)
        self.DisplayDonateButton.config(state=NORMAL)
-       #Finally, clear the windows.
+
+       # Clear the windows.
        self.CleanStart()
+
+       # Warn the user that they'll have to use the Clickable Keyboard if a "bad" OS
+       # has been detected.
+       if self.CheckBoxValueClickKeyMode.get()==1:
+          # Both print and showwarning...
+          print "==============================================================="
+          print "==============================================================="
+          print "==============================================================="
+          print ""
+          print "               'Naughty' Operating System Detected!"
+          print ""
+          print "==============================================================="
+          print "==============================================================="
+          print "==============================================================="
+          print ""
+          print "Click-to-type mode:"
+          print "-------------------"
+          print "PyEyeCrypt will still run, but ClearText and Passwords MUST be "
+          print "entered using the on-screen 'clickable' keyboards."
+          print ""
+          print "e.g. The new Windows 10 Privacy Statement includes the words:"
+          print "'Your typed and handwritten words are collected'"
+          print ""
+          print "This behaviour is akin to a keylogging virus."
+          print "Win 7 & 8 are also being updated by MS in a fashion which could"
+          print "compromise your encryption. Amongst others, Ubuntu sends data"
+          print "to 'Cannonical'"
+          print ""
+          print "This means that passwords typed by a single recipient using"
+          print "Win10 or Ubuntu could, *unknown to the sender*, expose the"
+          print "sender's password and (possibly) text!"
+          print ""
+          tkMessageBox.showwarning("WARNING", "'Naughty' Operating System Detected! \n\nClick-to-type mode: \n----------------\nPyEyeCrypt will still run, but ClearText and Passwords MUST be entered using the on-screen 'clickable' keyboards. \n\ne.g. The new Windows 10 Privacy Statement includes the words:\n'Your typed and handwritten words are collected.' \n\nThis behaviour is akin to a keylogging virus. Win 7 & 8 are also being updated in a fashion which could compromise your encryption. Amongst others, Ubuntu sends data to 'Cannonical'. \n\nThis means, for example, that passwords typed by a single recipient using Win10 or Ubuntu could, *unknown to the sender*, expose the sender's password and (possibly) text! ")
+       # Now, and only now, can we enable the "Click-to-type' checkbox
+       # We must only enable it if it is unchecked (indicating a good OS)
+       else:    
+         self.ClickKeyModeButton.config(state=NORMAL)
 
 
    #####################################################
@@ -404,23 +682,24 @@ class MainWindowFrame(Frame):
              #Trip the ERROR variable so we know there's a char in the text which is not allowed for HEX mode. 
              errorTripped="IV"
 
-       # Do the following extra checks on ClearText and EncryptedText, if we are in hex mode:      
+       EncryptedTextContent=self.EncryptedText.get("1.0",END)
+       if EncryptedTextContent[-1:] == '\n':
+          EncryptedTextContent = EncryptedTextContent[:-1]
+       for hexchar in EncryptedTextContent:
+          if hexchar not in allowed:
+             #Trip the ERROR variable so we know there's a char in the text which is not allowed for HEX mode.
+             errorTripped="Encrypted Text Window"                              
+             
+       # Do the following extra checks on ClearText, if we are in hex mode:      
        if self.CheckBoxValueHexMode.get()==1:
           #get the contents of cleartext, key and encrypted text and see if only 0-9&a/A,b/B,c/C,d/D,e/E,f/F
           ClearTextContent=self.ClearText.get("1.0",END)
           if ClearTextContent[-1:] == '\n':
              ClearTextContent = ClearTextContent[:-1]
-          EncryptedTextContent=self.EncryptedText.get("1.0",END)
-          if EncryptedTextContent[-1:] == '\n':
-             EncryptedTextContent = EncryptedTextContent[:-1]
           for hexchar in ClearTextContent:
              if hexchar not in allowed:
                 #Trip the ERROR variable so we know there's a char in the text which is not allowed for HEX mode.
                 errorTripped="Clear Text Window"
-          for hexchar in EncryptedTextContent:
-             if hexchar not in allowed:
-                #Trip the ERROR variable so we know there's a char in the text which is not allowed for HEX mode.
-                errorTripped="Encrypted Text Window"                              
 
        # Finally, return the value in "errorTripped" to the calling function         
        return errorTripped
@@ -469,6 +748,7 @@ class MainWindowFrame(Frame):
       else:
          tkMessageBox.showwarning("Padding Cleartext", "PadTo128Bits(): Error - Padding not required, yet PadTo128Bits() was called. Padding FAILED." )
          return "PaddingError"       
+
          
    #####################################################
    # VALIDATE ENCRYPT section
@@ -506,15 +786,19 @@ class MainWindowFrame(Frame):
        # Do this whether 'ENABLE' is set or not (user could have disabled after changing it).
        PBKDF2iterations=self.user_entry_pbkdf2_iter.get()
        if PBKDF2iterations == "":
-             #Trip an ERROR
-             tkMessageBox.showwarning("Encrypt Not Possible", "PBKDF2 iterations is empty. \n\nIt must be a positive integer to generate a Key, preferably in the tens of thousands, larger being more secure.")
-             return 5
+          #Trip an ERROR
+          tkMessageBox.showwarning("Encrypt Not Possible", "PBKDF2 iterations is empty. \n\nIt must be a positive integer to generate a Key, preferably in the tens of thousands, larger being more secure.")
+          return 5
        posintallowed="0123456789"
        for numericposintchar in PBKDF2iterations:
           if numericposintchar not in posintallowed:
              #Trip the ERROR
              tkMessageBox.showwarning("Encrypt Not Possible", "PBKDF2 iterations must be a positive integer." )
              return 6
+       if int(PBKDF2iterations) == 0:
+          #Trip an ERROR
+          tkMessageBox.showwarning("Encrypt Not Possible", "PBKDF2 iterations is zero. \n\nIt must be a positive integer to generate a Key, preferably in the tens of thousands, larger being more secure.")
+          return 7
 
        # Blocksize, Keysize, ivsize, saltsize hold the number of bits for each of these variables.
        # Set initial values for blocksize, keysize, ivsize, saltsize to -1. 
@@ -541,37 +825,37 @@ class MainWindowFrame(Frame):
        if resultOfSaltKeyIvGen !="Success":
           # We probaby don' t need this 'showwarning' because every return code from self.GenerateSaltKeyIv() already has a 'showwarning' message anyway.
           # tkMessageBox.showwarning("Key Generation Failed", "Key generation has failed with error code %s. \n\nSorry, but it is not possible to proceed, until we can generate a Key for encryption." % resultOfSaltKeyIvGen )
-          return 7
+          return 8
 
        # Check that salt is present/ right length.
        salt_text=self.user_entry_salt.get()
        if (len(salt_text)*4) != saltsize:
           tkMessageBox.showwarning("Encrypt Not Possible", "Can not produce encrypted text. \n\n'Salt' length is wrong number of bits. Should be %s bits." % saltsize  )
-          return 8
+          return 9
 
        # Check that the Key is present
        if self.user_entry_key.get()=="":  
           tkMessageBox.showwarning("Encrypt Not Possible", "'Key' is empty." )
-          return 9          
+          return 10          
 
        # See if the Key is the right length -take each HEX digit as 4 bytes, so multiply by 4.
        key_text=self.user_entry_key.get()
        if (len(key_text)*4) != keysize:
           tkMessageBox.showwarning("Encrypt Not Possible", "'Key' length is wrong number of bits. Should be %s bits." % keysize  )
-          return 10
+          return 11
 
        # See if the IV is the right size. This one CAN be empty in ECB mode, for example.
        iv_text=self.user_entry_iv.get()
        if (len(iv_text)*4) != ivsize:
           tkMessageBox.showwarning("Encrypt Not Possible", "'IV' is wrong length (%s bytes) . Should be %s bytes." % (len(iv_text)*4,ivsize)  )
-          return 11
+          return 12
 
        # Check that Salt, Key, IV only contain HEX digits; regardless of whether we're in hex mode this should be true.
        validate=""
        validate=self.HexCheck()
        if validate!="":
           tkMessageBox.showwarning("Invalid Characters", "%s has invalid characters. \n\nOnly characters \n[0..9, a..f, A..F] are allowed.\n\n--NO SPACES, or CR/LF's!--" % validate )
-          return 12   
+          return 13   
 
        # Hexlify the Clear Text content (if needed), ready for padding.
        HexlifiedClearTextContent=""
@@ -590,9 +874,10 @@ class MainWindowFrame(Frame):
           #Error Trapping - should only consist of hex digits so we will never falsely detect an error if we look for "PaddingError"!
           if (trailingpadding=="PaddingError"):
              tkMessageBox.showwarning("Padding Cleartext", "Error in PadTo128Bits() Function. Padding FAILED." )
-             return 13
+             return 14
        PaddedClearTextContent=HexlifiedClearTextContent+trailingpadding
        self.EncryptValidatedClearText(PaddedClearTextContent, key_text, ivsize, iv_text, blocksize, saltsize, salt_text)
+
 
    #####################################################
    # Function to Generate a Key, Salt and IV (if needed).
@@ -861,15 +1146,19 @@ class MainWindowFrame(Frame):
        # Do this whether 'ENABLE' is set or not (user could have disabled after changing it).
        PBKDF2iterations=self.user_entry_pbkdf2_iter.get()
        if PBKDF2iterations == "":
-             #Trip an ERROR
-             tkMessageBox.showwarning("Decrypt Not Possible", "PBKDF2 iterations is empty. \n\nIt must be a positive integer to generate a Key, preferably in the tens of thousands, larger being more secure.")
-             return 5
+          #Trip an ERROR
+          tkMessageBox.showwarning("Decrypt Not Possible", "PBKDF2 iterations is empty. \n\nIt must be a positive integer to generate a Key, preferably in the tens of thousands, larger being more secure.")
+          return 5
        posintallowed="0123456789"
        for numericposintchar in PBKDF2iterations:
           if numericposintchar not in posintallowed:
              #Trip the ERROR
              tkMessageBox.showwarning("Decrypt Not Possible", "PBKDF2 iterations must be a positive integer." )
              return 6
+       if int(PBKDF2iterations) == 0:
+          #Trip an ERROR
+          tkMessageBox.showwarning("Encrypt Not Possible", "PBKDF2 iterations is zero. \n\nIt must be a positive integer to generate a Key, preferably in the tens of thousands, larger being more secure.")
+          return 7
 
        # Blocksize, Keysize, ivsize, saltsize hold the number of bits for each of these variables.
        # Set initial values for blocksize, keysize, ivsize, saltsize to -1. 
@@ -889,6 +1178,14 @@ class MainWindowFrame(Frame):
           keysize=128
           ivsize=0
           saltsize=128
+
+       # Catch when the Password is empty. Users might do this accidentally
+       # BUT there is a vald reason NOT to have a password: 
+       # - if you are testing a KAT vector and decrypting with a known Key, which you are 'Keep'ing.
+       if self.user_entry_password.get()=="":
+          if self.CheckBoxValueEnableKeyOverride.get()==0:
+             tkMessageBox.showwarning("Decrypt Not Possible", "'Password' is empty." )
+             return 8
 
        #For Decrypt only,  see if the user-entered Salt is EMPTY. It should be empty for DECRYPTION to begin with. 
        #Differs relative to Encrypt! (There, salt_text is checked against salt_size and demanded if needed.)
@@ -946,7 +1243,7 @@ class MainWindowFrame(Frame):
        #open a new window to explain the error; in hex mode we can ONLY use 0-9&a/A,b/B,c/C,d/D,e/E,f/F       
        if validate!="":     
           tkMessageBox.showwarning("Invalid Characters", "%s has invalid characters. \n\nOnly characters \n[0..9, a..f, A..F] are allowed.\n\n--NO SPACES, or CR/LF's!--" % validate )
-          return 7
+          return 9
 
        #The first "saltsize" bits will be the Salt for the Key of the Encrypted Message. 
        if saltsize > 0:
@@ -966,7 +1263,7 @@ class MainWindowFrame(Frame):
                 self.user_entry_salt.config(state=DISABLED)
           else:
              tkMessageBox.showwarning("Decrypt ERROR", "Error: Cannot Decrypt when Encrypted Text is not long enough to even contain the 'Salt' ('Salt'=%s bytes)." % saltsize )
-             return 8
+             return 10
 
        #The next "ivsize" bits will be the IV of an encrypted message. 
        if ivsize > 0:
@@ -986,8 +1283,7 @@ class MainWindowFrame(Frame):
                 self.user_entry_iv.config(state=DISABLED)
           else:
              tkMessageBox.showwarning("Decrypt ERROR", "Error: Cannot Decrypt when Encrypted Text is not long enough to even contain the 'IV' ('IV'=%s bytes)." %ivsize )
-             return 9
-
+             return 11
 
        # NOTE Decryption IS different to Encryption; inasmuch as HEX mode indicates whether we want HEX Cleartext output; 
        #      the encrypted text SHOULD always be in HEX to begin with!
@@ -1021,13 +1317,13 @@ class MainWindowFrame(Frame):
        # Check that the Key is now indeed present (we must to this again, to check the above Key generation worked properly)
        if self.user_entry_key.get()=="":  
           tkMessageBox.showwarning("Decrypt Not Possible", "'Key' is empty." )
-          return 10          
+          return 12          
 
        # See if the Key is the right length -take each HEX digit as 4 bytes, so multiply by 4.
        key_text=self.user_entry_key.get()
        if (len(key_text)*4) != keysize:
           tkMessageBox.showwarning("Decrypt Not Possible", "'Key' length is wrong number of bits. Should be %s bits." % keysize  )
-          return 11
+          return 13
              
        # For AES, whether in HEX mode or not, we expect EncryptedText to be in hex.
        # I require text to be a muliple of the blocksize (usually 128 bits).
@@ -1038,12 +1334,11 @@ class MainWindowFrame(Frame):
           #Error Trapping - should only consist of hex digits so we will never falsely detect an error if we look for "PaddingError"!
           if (trailingpadding=="PaddingError"):
              tkMessageBox.showwarning("Padding Encryptedtext", "Error in PadTo128Bits() Function. Padding FAILED." )
-             return 12 
+             return 14 
        PaddedEncryptedTextContent=EncryptedTextContent+trailingpadding
 
        #Do the decryption
        self.DecryptValidatedEncryptedText(PaddedEncryptedTextContent, key_text, ivsize, iv_text, blocksize)          
-
 
           
    #####################################################
@@ -1085,12 +1380,16 @@ class MainWindowFrame(Frame):
           # Append the "stripped_decrypted_filled" into "total_stripped_decrypted_filled" 
           total_stripped_decrypted_filled=total_stripped_decrypted_filled+stripped_decrypted_filled
 
+       if self.CheckBoxValueClickKeyMode.get()==1:
+          self.ClearText.config(state=NORMAL)
        if self.CheckBoxValueHexMode.get()==1:
           self.ClearText.insert(END,total_stripped_decrypted_filled)
        else:
           # Unhexlify and sanitise the stripped_decrypted_filled block; it CAN have padded junk which does not correspond to ascii chars. 
           unhexlified_stripped_decrypted_filled=binascii.unhexlify(total_stripped_decrypted_filled).decode('utf8','replace')
           self.ClearText.insert(END,unhexlified_stripped_decrypted_filled)
+       if self.CheckBoxValueClickKeyMode.get()==1:
+          self.ClearText.config(state=DISABLED)
    
 
    #####################################################
@@ -1143,7 +1442,6 @@ class MainWindowFrame(Frame):
        # This will ensure we don't have both ticked; it's 'almost' radiobutton behaviour, but not quite.
        if self.CheckBoxValueDisplayDonate.get()==1:
           self.DisplayDonateButton.deselect() 
-
 
        # When switching to "Eyes", If the "Reveal" checkboxes are ticked, untick them now.
        # And hide the pass/key
@@ -1222,7 +1520,11 @@ class MainWindowFrame(Frame):
 
        # If the DisplayEyes box is checked, insert the images
        if self.CheckBoxValueDisplayEyes.get()==1:
+          if self.CheckBoxValueClickKeyMode.get()==1:
+             self.ClearText.config(state=NORMAL)
           self.ClearText.insert(END,EyeTextL)
+          if self.CheckBoxValueClickKeyMode.get()==1:
+             self.ClearText.config(state=DISABLED)
           self.EncryptedText.insert(END,EyeTextR)
        # Otherwise, we might be here because the box was actively unchecked, and we must set the geometry
        # back to how it was before the box/boxes were checked.
@@ -1241,7 +1543,11 @@ class MainWindowFrame(Frame):
              # Remove any trailing "\n" newline, because the copy action we performed actually adds a newline!
              if user_entered_ClearText[-1:] == '\n':
                 user_entered_ClearText = user_entered_ClearText[:-1]
+             if self.CheckBoxValueClickKeyMode.get()==1:
+                self.ClearText.config(state=NORMAL)
              self.ClearText.insert(END,user_entered_ClearText)
+             if self.CheckBoxValueClickKeyMode.get()==1:
+                self.ClearText.config(state=DISABLED)
              user_entered_ClearText=""
           if (user_entered_EncryptedText!=""):
              # Remove any trailing "\n" newline, because the copy action we performed actually adds a newline!
@@ -1249,6 +1555,7 @@ class MainWindowFrame(Frame):
                 user_entered_EncryptedText = user_entered_EncryptedText[:-1]
              self.EncryptedText.insert(END,user_entered_EncryptedText)
              user_entered_EncryptedText="" 
+
        
    #####################################################
    # Function to hide/display content with "Donate QR"
@@ -1369,7 +1676,11 @@ class MainWindowFrame(Frame):
 
        # If the DisplayDonate box is checked, insert the image.
        if self.CheckBoxValueDisplayDonate.get()==1:
+          if self.CheckBoxValueClickKeyMode.get()==1:
+             self.ClearText.config(state=NORMAL)
           self.ClearText.insert(END,DonateTextL)
+          if self.CheckBoxValueClickKeyMode.get()==1:
+             self.ClearText.config(state=DISABLED)
           self.EncryptedText.insert(END,DonateTextR)
        # Otherwise, we might be here because the box was actively unchecked, and we must set the geometry
        # back to how it was before the box/boxes were checked.
@@ -1388,7 +1699,11 @@ class MainWindowFrame(Frame):
              # Remove any trailing "\n" newline, because the copy action we performed actually adds a newline!
              if user_entered_ClearText[-1:] == '\n':
                 user_entered_ClearText = user_entered_ClearText[:-1]
+             if self.CheckBoxValueClickKeyMode.get()==1:
+                self.ClearText.config(state=NORMAL)
              self.ClearText.insert(END,user_entered_ClearText)
+             if self.CheckBoxValueClickKeyMode.get()==1:
+                self.ClearText.config(state=DISABLED)
              user_entered_ClearText=""
           if (user_entered_EncryptedText!=""):
              # Remove any trailing "\n" newline, because the copy action we performed actually adds a newline!
@@ -1416,13 +1731,13 @@ class MainWindowFrame(Frame):
       tab7 = note.add_tab(text = "Encryption Methods")
       tab8 = note.add_tab(text = "Tests")
       tab9 = note.add_tab(text = "About")
-      Label(tab1, text= 'ENCRYPTION:\n========\n1. Enter your message in the "Clear Text" window.\n2. Enter a Password (make it long and $tr0nG!, but mostly loooong) \n    -- the generated Key will only be as strong as your Password! \n3. Choose the encryption method (recommended "AES-128 CBC"). \n4. Click on the "ENCRYPT" button. \n\nYou may receive a warning that your text is being "padded".\nIf this happens, your message will have some random characters \nappended at the end which will be visible upon decryption. \nIt might be prudent to warn your intended recpient about this. \n\nGeek notes: \nThe padding is necessary because AES is a "block" cipher, \nwhich operates on blocks of text of a specific size. If your \nmessage is not exactly divisible by the block size, then your \ntext is padded with random characters to make it fit the cipher. \nThe random characters are generated by a cryptographically \nsecure method, (not a PRNG!). It is possible (but not necessary) \nto avoid the need for padding by lengthening your message. \n\nYour encrypted text will consist of hexadecimal digits 0-9,a-f.\n\nIMPORTANT:\n========\nThe new Windows 10 Privacy Statement includes the words: \n"your typed and handwritten words are collected".\n- It is therefore suggested **NOT** to use Win10 with PyEyeCrypt! \n- Consider encrypting on e.g. a Raspberry Pi, and only transfer the \n   Encrypted Text to Win10, if you have to use it.', justify=LEFT).grid()
+      Label(tab1, text= 'ENCRYPTION:\n========\n1. Enter your message in the "Clear Text" window.\n2. Enter a Password (make it long and $tr0nG!, but mostly loooong) \n    -- the generated Key will only be as strong as your Password! \n3. Choose the encryption method (recommended "AES-128 CBC"). \n4. Click on the "ENCRYPT" button. \n\nYou may receive a warning that your text is being "padded".\nIf this happens, your message will have some random characters \nappended at the end which will be visible upon decryption. \nIt might be prudent to warn your intended recpient about this. \n\nGeek notes: \nThe padding is necessary because AES is a "block" cipher, \nwhich operates on blocks of text of a specific size. If your \nmessage is not exactly divisible by the block size, then your \ntext is padded with random characters to make it fit the cipher. \nThe random characters are generated by a cryptographically \nsecure method, (not a PRNG!). It is possible (but not necessary) \nto avoid the need for padding by lengthening your message. \n\nYour encrypted text will consist of hexadecimal digits 0-9,a-f.\n\nIMPORTANT:\n========\nThe new Windows 10 Privacy Statement includes the words: \n"Your typed and handwritten words are collected".\n- PyEyeCrypt will therefore enforce the use of "clickable keyboards" \n   for ClearText and Password entry, when it detects an operating \n   system which is known to snoop on users.', justify=LEFT).grid()
 
-      Label(tab2, text ='UNDERSTANDING THE ENCRYPTED TEXT:\n========================= \nAfter encryption, the "Encrypted Text" area will contain your encrypted \nmessage, plus some other data which the receipient will need.  \n\nSpecifically, the "Encrypted Text" area contains, in order: \n1. Password Salt, or simply "Salt", \n2. Message Initialisation Vector, "IV" - Only if using "CBC" mode encryption.\n3. The Encrypted Message. \n\nIf you have just encrypted some cleartext, then the Salt and IV will \nbe present at the beginning of the "Encrypted Text". \n\nVERY IMPORTANT:\n============ \n- The "Password" must be kept secret. \n- The "Key" should be DISCARDED and NEVER transmitted or divulged. \n         -- it will be recalculated by the recipient using the Password and Salt.', justify=LEFT).grid()
+      Label(tab2, text ='UNDERSTANDING THE ENCRYPTED TEXT:\n========================= \nAfter encryption, the "Encrypted Text" area will contain your encrypted \nmessage, plus some other data which the receipient will need.  \n\nSpecifically, the "Encrypted Text" area contains, in order: \n1. Password Salt, or simply "Salt", \n2. Message Initialisation Vector, "IV" - Only if using "CBC" mode encryption.\n3. The Encrypted Message. \n\nIf you have just encrypted some cleartext, then the Salt and IV will \nbe present at the beginning of the "Encrypted Text". \n\nVERY IMPORTANT:\n============ \n- The "Password" must be kept secret. \n- The "Key" should be DISCARDED, and NEVER transmitted or divulged. \n         -- it will be recalculated by the recipient using the Password and Salt.', justify=LEFT).grid()
 
       Label(tab3, text = 'PASSWORD SALT:\n==========\nIf you just encrypted (or decrypted) some text, the Salt will be visible near \nthe bottom of the Main Window. \n\nThe Salt is transmitted to the recipient in first block of the Encrypted Text. \nIt is randomly generated for each message, and is needed by the recipient \nto turn your agreed Password into a "Key". The Salt should NEVER be \nre-used for a message you wish to keep secure. \n\nGeek notes:\n- It is OK to transmit the Salt unencrypted, since it is ONLY used to deter \n   the use of "rainbow" or "lookup" tables on common* passwords. \n- The use of Salt means that a lookup table would have to be computed \n   for each message. \n- Knowing the Salt DOES NOT help the attacker to deduce your Password. \n- Remember, the generated Key will only be as strong as your Password. \n\nSuper Geek Notes:\n- The Password and Salt are combined using the PBKDF2 function with \n   HMAC SHA256 hashing, and 16,384 iterations (by default) to make the Key. \n- *Rainbow tables exist to crack md5 hashes of ALL POSSIBLE passwords up \n   to 8 characters long (e.g. http://www.freerainbowtables.com/en/tables2/), \n   so in order to prevent computation of lookups (given the Salt), it is \n   imperative to use a tunably slow function like PBKDF2 (or equivalent); \n     - with a good hashing function (e.g. SHA-256), \n     - using a substantial number of iterations (tens of thousands), \n     - including a new, long, cryptographically-random Salt, \n     - and using lo0o0o0ooooong passwords.\n- If you are careful to NEVER re-use a Salt, then any attacker has to recompute \n   rainbow/lookup tables for each message!', justify=LEFT).grid()
 
-      Label (tab4, text = 'Key: \n=== \nIf you just encrypted (or decrypted) some text, the Key will be visible near \nthe bottom of the Main Window (click "Reveal" to see it). \n\nThe Key should NEVER transmitted to the recipient, and should be DISCARDED \nafter each encryption (the recipient only needs the Password and Salt to \ndecrypt; the Key is computed from these). \n\nPBKDF2 Function:\n===========\nThe Key is computed using the Password Based Key Derivation Function2 \n(PBKDF2), which is designed to be tunably slow (higher iterations equals \nslower Key derivation): \n- The cryptographically-random Salt deters the use of rainbow/lookup tables. \n- The tunable slowness of PBKDF2 Key generation using higher iterations \n   deters the use of brute-force or dictionary attacks.  \n\nIn this software, PBKDF2 is set upto use HMAC SHA-256 hashing, the random \nSalt, Password, and 16,384 iterations by default. \n\nThe PBKDF2 iterations can be increased if desired, but the recipient must be \nwarned in advance, otherwise they will not compute the Key correctly, even if \nthey have the Password and Salt!',justify=LEFT).grid()
+      Label (tab4, text = 'Key: \n=== \nIf you just encrypted (or decrypted) some text, the Key will be visible near \nthe bottom of the Main Window (click "Reveal" to see it). \n\nThe Key should NEVER transmitted to the recipient, and should be DISCARDED \nafter each encryption (the recipient only needs the Password and Salt to \ndecrypt; the Key is computed from these). \n\nPBKDF2 Function:\n===========\nThe Key is computed using the Password Based Key Derivation Function2 \n(PBKDF2), which is designed to be tunably slow (higher iterations equals \nslower Key derivation): \n- The cryptographically-random Salt deters the use of rainbow/lookup tables. \n- The tunable slowness of PBKDF2 Key generation using higher iterations \n   deters the use of brute-force or dictionary attacks.  \n\nIn this software, PBKDF2 is set up to use HMAC SHA-256 hashing, the random \nSalt, Password, and 16,384 iterations by default. \n\nThe PBKDF2 iterations can be increased if desired, but the recipient must be \nwarned in advance, otherwise they will not compute the Key correctly, even if \nthey have the Password and Salt!',justify=LEFT).grid()
 
       Label (tab5, text = 'MESSAGE INITIALISATION VECTOR (IV):\n========================\nIf you just encrypted (or decrypted) some text and an IV is needed, it will \nbe visible near the bottom of the Main Window. \n\n- The IV is transmitted to the recipient in the second block of the \n   encrypted text, immediately following the "Salt". \n- It is a random series of hexadecimal digits created for each message. \n- An IV is generated when encrypting in "CBC" (Cipher Block Chain) mode. \n- IVs should NEVER be re-used on messages you wish to keep secure. \n\nGeek notes:\n- When a block is to be encrypted in CBC-mode, it is first XORed with the \n   previous encrypted block. \n- The IV has the role of the "-1" block (the previous encrypted block for \n   the first block). \n- The main consequence of re-using the IV is that if two messages begin \n   with the same sequence of bytes then the encrypted messages may also \n   be identical for a few blocks, depending on the Key. This leaks data and \n   opens the possibility of some attacks. \n\nFor more explanation on the use of "IV"s, see the Wikipedia entry on \nblock-ciphers: \nhttps://en.wikipedia.org/wiki/Block_cipher_mode_of_operation',justify=LEFT).grid()
 
@@ -1432,7 +1747,7 @@ class MainWindowFrame(Frame):
 
       Label(tab8, text = 'TESTING ENCRYPTION:\n============== \nIt is possible to test the encryption using Known Answer Test (KAT) Vectors. \n- KAT Vectors are usually published on the web in Hexadecimal notation, so \n   you should click the "Hex Mode" box. \n- Paste the KAT vector you wish to encrypt into the Clear Text window. \n- Next, check the "Enable" box to enter a Key. \n- Paste the Key used for the test into the "Key" row. \n- Click the "Keep" button to stop the software trying to calculate a new Key \n   when you encrypt.\n- If you are testing "CBC" mode, you will need to enter an IV for the KAT test, \n   and check the "Keep" box. \n\nNB: The "Encrypted Text" will have the Salt (and possibly IV) prepended \nbefore the actual encrypted message. As discussed, this presents NO \nsecurity risk to the user. The encrypted KAT vector can be compared to \nresults on the web by ignoring the Salt and IV portions of the Encrypted Text. \n\nNB: Be sure to double-check that the encryption method (e.g. "AES-128 CBC") \nis correct for the test you are performing! \n\n\nTESTING KEY GENERATION:\n================ \nIt is also possible to test that the Password and Salt correctly generate a Key. \n- You will have to look up PBKDF2 HMAC-SHA2 test vectors, and manually \n   enter (and keep) the Password and Salt. \n- The Salt has to be entered in Hexadecimal digits; so please convert any given \n   test Salt into "Hex" format before you enter it  -e.g. if the test Salt is the ASCII \n   string "NaCl", then you should enter "4e61436c" in the "Salt" window. \n- You will also have to override the PBKDF2 iterations to match the test value given. \n- We only keep enough bits of the derived Key to fit the Encryption Method being \n   used (e.g. AES-128 would keep 128 bits of the Key)', justify=LEFT).grid()
 
-      Label(tab9, text = 'PyEyeCrypt (%s)    -    Copyright (C) 2015 "mi55 ing" <mi55ing@protonmail.ch>\n=================================================\nPLEASE REPORT FLAWS, BUGS, OR KNOWN SIDE-CHANNEL ATTACKS TO: \n"mi55 ing" <mi55ing@protonmail.ch> \n\nIt is politely suggested that you check the md5 hash of your downloaded \napplication against the value(s) on the github download page: \nhttps://github.com/mi55ing/PyEyeCrypt. \n- You can do this for the executable by simply typing (in OSX) "md5 PyEyeCrypt.app.tgz". \n- Check the source code by typing: "md5 PyEyeCrypt.py; md5 aes.py; md5 pbkdf2.py". \n\nIt is also suggested to perform encryption/decryption on a computer with (AT LEAST) \nan outbound firewall e.g. TCPBlock. Performing encryption whilst offline can also \nincrease your safety somewhat. \n\nIMPORTANT:\n========\nThe new Windows 10 Privacy Statement includes the words: \n"your typed and handwritten words are collected".\n- It is therefore suggested **NOT** to use Win10 with PyEyeCrypt! \n- Consider encrypting on e.g. a Raspberry Pi, and only transfer the \n   Encrypted Text to Win10, if you have to use it.' % PyEyeCryptVersion, justify=LEFT).grid()
+      Label(tab9, text = 'PyEyeCrypt (%s)    -    Copyright (C) 2015 "mi55 ing" <mi55ing@protonmail.ch>\n=================================================\nPLEASE REPORT FLAWS, BUGS, OR KNOWN SIDE-CHANNEL ATTACKS TO: \n"mi55 ing" <mi55ing@protonmail.ch> \n\nIt is politely suggested that you check the md5 hash of your downloaded \napplication against the value(s) on the github download page: \nhttps://github.com/mi55ing/PyEyeCrypt. \n- You can do this for the executable by simply typing (in OSX) "md5 PyEyeCrypt.app.tgz". \n- Check the source code by typing: "md5 PyEyeCrypt.py; md5 aes.py; md5 pbkdf2.py". \n\nIt is also suggested to perform encryption/decryption on a computer with (AT LEAST) \nan outbound firewall e.g. TCPBlock. Performing encryption whilst offline might also \nincrease your safety somewhat.' % PyEyeCryptVersion, justify=LEFT).grid()
 
 
    #####################################################
@@ -1443,14 +1758,17 @@ class MainWindowFrame(Frame):
        Frame.__init__(self, master)
        self.pack()
        self.createWidgets()
-       # Start the user on the ClearText Window..
-       self.ClearText.focus_force()
+       # Start the user on the ClearText or EncryptedText Window.
+       # If we have isBadOS==1, then the user typing at startup actually does do *something*, albeit in the Encrypted Text window. 
+       if self.CheckBoxValueClickKeyMode.get()==0:
+          self.ClearText.focus_force()
+       else:
+          self.EncryptedText.focus_force()          
        # Eyes appear on startup.
        self.CheckBoxValueDisplayEyes.set(1)
        self.DisplayEyes()
        self.after(1500,self.CleanStartFirstEyesDonate)
        self.CheckBoxValueDisplayEyes.set(0)
-
 
 
 ######################################################################################
@@ -1517,18 +1835,23 @@ class EntropyWindow():
         # Use the global version of the variables for window sizes in this class.
         global user_defined_frame_width
         global user_defined_frame_height
-        # Grab a time() value before frame is created.
-        test_time1=time()
+
         self.entropywin=Toplevel()
         self.entropywin.title("PyEyeCrypt (%s)   -  Copyright (C) 2015:   Entropy (Randomness) Capture" %PyEyeCryptVersion)
         entropyframe=Frame(self.entropywin)
-        self.entropywin.wm_geometry("%dx%d%+d%+d" % (5*user_defined_frame_width/8, 100, user_defined_frame_width*3/16, user_defined_frame_height/4)) 
+        self.entropywin.wm_geometry("%dx%d%+d%+d" % (3*user_defined_frame_width/4, 130, user_defined_frame_width/8, user_defined_frame_height/4)) 
         self.entropywin.grid_columnconfigure(0, weight=1)
         
-        Label(entropyframe, text="ENTROPY GATHERING: Please press keys at random time intervals:").grid(row=5, column=5, pady=(10,10), sticky=E+W)
-        self.entropyKeyEntryWidget = self.makeentropyentry(entropyframe, 15) 
-        self.entropyKeyEntryWidget.grid(row=5,column=6,pady=(10,10), sticky=E+W)
+        Label(entropyframe, text="ENTROPY GATHERING: Please press keys at RANDOM TIME INTERVALS:").grid(row=5, column=5, pady=(10,10), sticky=E+W)
+        self.entropyKeyEntryWidget = self.makeentropyentry(entropyframe, 25) 
+        self.entropyKeyEntryWidget.grid(row=5,column=6,columnspan=2,pady=(10,10), sticky=E+W)
         self.entropyKeyEntryWidget.focus_set()
+
+        Label(entropyframe, text="Time: ").grid(row=6,column=5,sticky=E)
+        self.sessionseedtimedisplay=StringVar()
+        self.sessionseedtimedisplay.set("0.0000000000")
+        self.displaytimevalues = Label(entropyframe, textvariable = self.sessionseedtimedisplay)
+        self.displaytimevalues.grid(row=6,column=6, columnspan=2, sticky=W)
 
         self.sessionseedhexdisplay=StringVar()
         self.sessionseedhexdisplay.set("0x")
@@ -1542,37 +1865,39 @@ class EntropyWindow():
 
         entropyframe.grid()
 
-        # Grab a time() value after frame is created.
-        test_time2=time()
-
         #set up the variables needed later
         start_time = end_time = 0
         self.sessionseed=""
 
-        # determine how many digits are in the timestamp after the decimal point, 
-        # and keep up to 6 digits per keypress between positions 3-8 inclusive:
-        difftesttime=test_time1-test_time2
-        stringydifftesttime=repr(difftesttime)
-        difftesttime_digits, difftesttimefract_digits = stringydifftesttime.split('.')
-        if len(difftesttimefract_digits) < 9:
-           tkMessageBox.showwarning("Error Getting Entropy", "Error Getting Entropy: Time stamp does not have enough digits.." )
+        # Grab a timedifference, make sure there are enough digits.
+        # determine how many digits are in the timestamp after the decimal point..
+        test_time=time()-start_time
+        stringytesttime=repr(test_time)
+        testtime_digits, testtimefract_digits = stringytesttime.split('.')    
+        if len(testtimefract_digits) < 3:
+           tkMessageBox.showwarning("Error Getting Entropy", "Error Getting Entropy: Time stamp does not have enough digits..\n start_time: %s \ntest_time: %s \ntesttimefract_digits: %s. \n\n Try Restarting PyEyeCrypt." % (start_time,test_time,testtimefract_digits) )
            sys.exit()
-        self.digitstostartat=2
-        self.digitstoendat=8
+
+        # Keep 2 digits per keypress between positions 2-3 inclusive:
+        self.digitstostartat=1
+        self.digitstoendat=3
 
         def key(event): 
            end_time = time()
            timedifference=end_time-start_time
            stringythingy = repr(timedifference)
            signif_digits, fract_digits = stringythingy.split('.')
+
            #use zfill to ensure leading zeros for each of the decimal numbers after the first are counted too
            fract_firstdigits = fract_digits[self.digitstostartat:self.digitstoendat].zfill(self.digitstoendat-self.digitstostartat)
-           #self.sessionseedtimedisplay.set(str(timedifference)+" , ("+fract_firstdigits+")")
+
+           self.sessionseedtimedisplay.set(str(timedifference)+" , ("+fract_firstdigits+")")
            self.sessionseed=fract_firstdigits+self.sessionseed
            self.sessionseedlong=long(self.sessionseed)
            self.sessionseedhex="%x" % self.sessionseedlong
+
            self.sessionseedhexdisplay.set("0x"+self.sessionseedhex)
-           self.bardisplay.set(self.bardisplay.get().encode("utf8","strict")+"███")
+           self.bardisplay.set(self.bardisplay.get().encode("utf8","strict")+"█")
            if len(self.sessionseedhex)*4 >= desiredBits:
               self.entropyKeyEntryWidget.unbind("<Key>")
               self.entropywin.destroy()
@@ -1580,8 +1905,6 @@ class EntropyWindow():
         start_time=time()
         self.entropyKeyEntryWidget.focus_force()
         self.entropywin.grab_set()
-        #self.entropywin.attributes("-topmost", True)
-        #self.entropyKeyEntryWidget.wait_window(self.entropywin)
 
    def makeentropyentry(self,parent,width=None, **options):
         entry = Entry(parent, **options)
@@ -1591,10 +1914,503 @@ class EntropyWindow():
 
 
 ######################################################################################
+# Define the Class for the Clickable Keyboards                                       #
+######################################################################################
+class ClickableKeyboard():
+   def __init__(self, parent, parentwidget):
+      self.parent = parent
+      self.parentwidget = parentwidget
+      self.shiftToggle=0
+      self.ConfigureParentWidget()
+
+   def ConfigureParentWidget(self):
+      #use the global version of the variable ckickableKeyboardSizeDenominator to get keyboard frame dimensions
+      global ckickableKeyboardSizeDenominator      
+
+      # Since we got here, we KNOW we don't have an existing Clickable Keyboard.
+      # In this case, create one & position it.
+      # First, Get the parent Window's x,y position so we can use it 
+      # together with the parentwidget widget's size/offset
+      # to correctly position the Clickable Keyboard.
+      MainWindowOffsetX=self.parent.winfo_rootx()
+      MainWindowOffsetY=self.parent.winfo_rooty()
+      
+      # Get the parentwidget widget's position, height & width so we can position the offset of the Clickable Keyboard
+      parentwidgetGeometry= self.parentwidget.winfo_geometry()
+      parentwidgetWidth   = parentwidgetGeometry.split('+')[0].split('x')[0]
+      parentwidgetHeight  = parentwidgetGeometry.split('+')[0].split('x')[1]
+      parentwidgetOffsetX = parentwidgetGeometry.split('+')[1]
+      parentwidgetOffsetY = parentwidgetGeometry.split('+')[2]
+      
+      # Get the position to put the Ckickable Keyboard
+      KeyboardOffsetX= int(MainWindowOffsetX) + int(parentwidgetOffsetX) 
+      KeyboardOffsetY= int(MainWindowOffsetY) + int(parentwidgetOffsetY) + int(parentwidgetHeight)
+
+      # Windows has an annoying habit of masking a little of the Password Entry widget with the Password Clickable Keyboard Window.
+      # so I add 5px to the y-value.
+      global theOS
+      if theOS=="Windows":
+         KeyboardOffsetY=KeyboardOffsetY+5
+
+      # Set the "initial" width / height of the keyboard; this is annoyingly NOT
+      # exactly what it should finally be -- it appears to differ by a few pixels
+      KeyboardInitialWidth=int(float(2252)/float(ckickableKeyboardSizeDenominator))
+      KeyboardInitialHeight=int(float(784)/float(ckickableKeyboardSizeDenominator))
+
+      # Create the Clickable Keyboard Window with "initial" geometry from above.
+      self.parentwidgetKeyboardWin=Toplevel()
+      self.parentwidgetKeyboardWin.geometry("%dx%d+%d+%d" % ((KeyboardInitialWidth,KeyboardInitialHeight) + (KeyboardOffsetX,KeyboardOffsetY)))
+      self.parentwidgetKeyboardWin.update_idletasks()
+      self.parentwidgetKeyboardWin.title("PyEyeCrypt (%s)   -  Copyright (C) 2015: Keyboard" %PyEyeCryptVersion)
+      myframe = Frame(self.parentwidgetKeyboardWin,width=KeyboardInitialWidth , height=KeyboardInitialHeight)
+
+      # This is the special protocol we need to use to delete the Clickable Keyboard; 
+      # It resets any global variables etc., then destroys the Clickable Keyboard.
+      self.parentwidgetKeyboardWin.protocol("WM_DELETE_WINDOW", self.on_closing_parentwidgetKeyboardWin)
+      
+      # Import the background images of the UPPER and lower case keyboards.
+      background_image_lc= PhotoImage(file = os.path.join(basedir, "keyblc-crop-framestage4-huge-krm-Enter-del-bkslpipe-arrows.gif"))
+      background_image_uc= PhotoImage(file = os.path.join(basedir, "keybuc-crop-framestage4-huge-krm-Enter-del-bkslpipe-arrows.gif"))
+
+      #Store scaled images as "Class varables", so we can swap the images when 'Shift' is pressed on the Clickable Keyboard.
+      self.background_image_lc_scaled=background_image_lc.subsample(ckickableKeyboardSizeDenominator,ckickableKeyboardSizeDenominator)
+      self.background_image_uc_scaled=background_image_uc.subsample(ckickableKeyboardSizeDenominator,ckickableKeyboardSizeDenominator)
+
+      # Create the "Label" widget which holds the images of the keyboard.
+      self.parentwidgetKeyboardWin.background_label=Label(self.parentwidgetKeyboardWin, image=self.background_image_lc_scaled, borderwidth=0)
+      # Note the line below is needed. It keeps a reference. (Garbage Collector destroys it otherwise!).
+      self.parentwidgetKeyboardWin.background_label.image=self.background_image_lc_scaled #Keeps a reference! (Garbage Collector destroys it otherwise!)
+      self.parentwidgetKeyboardWin.background_label.place(x=0, y=0, relwidth=1, relheight=1)
+      self.parentwidgetKeyboardWin.background_label.grid(row=1,column=1,columnspan=2)
+
+      # Bind the left-button of the mouse to a "click" on the keyboard widget. 
+      self.parentwidgetKeyboardWin.background_label.bind("<Button-1>", self.callbackClickedClickableKeyboard) 
+      myframe.grid(row=1,column=1,columnspan=2)
+      self.parentwidgetKeyboardWin.resizable(0,0)
+
+
+   #####################################################
+   # The function to close the "parentwidgetKeyboardWin" cleanly, 
+   # It tells the parent widget that its ckickablekeyboard 
+   # is no longer open, sets the keyboard focus
+   # and then destroys() the Ckickable Keyboard Window.
+   #####################################################
+   def on_closing_parentwidgetKeyboardWin(self):
+      if self.parentwidget==self.parent.ClearText:
+         self.parent.ClearTextKeyboardOpened=0
+      elif self.parentwidget==self.parent.user_entry_password:
+         self.parent.PasswordKeyboardOpened=0
+      else:
+         tkMessageBox.showwarning("Error Closing Clickable Keyboard", "Error: unrecognised parent of Clickable Keyboard! Exiting. ")
+         sys.exit()
+
+      # Below means there is a definite focus, albeit null if the keyboard is closed and Click-to-type is still checked.
+      # OSX (at least) can refuse to recognise mouse-clicks to force focus if this is not present!
+      # - e.g if the user opens a clickable keyboard, then clicks on the entry/text widget, and then closes the keyboard window directly.
+      self.parentwidget.focus_force() 
+      self.parentwidgetKeyboardWin.destroy()
+
+
+   #####################################################
+   # The function which tells the ClearTextKeyboardWin
+   # what each event (click) means..
+   #####################################################
+   def callbackClickedClickableKeyboard(self,event):
+      actualWidth=self.parentwidgetKeyboardWin.winfo_width()
+      actualHeight=self.parentwidgetKeyboardWin.winfo_height()
+      relativeX=float(event.x)/float(actualWidth)
+      relativeY=float(event.y)/float(actualHeight)
+      keyPressed=""    
+      #
+      # ROW 1
+      #
+      if relativeY > 0.05 and relativeY < 0.23:
+         if relativeX > 0.028 and relativeX < 0.085:
+            if self.shiftToggle==0:
+               keyPressed="`"
+            else:
+               keyPressed="~"
+         if relativeX > 0.094 and relativeX < 0.153:
+            if self.shiftToggle==0:
+               keyPressed="1"
+            else:
+               keyPressed="!"
+         if relativeX > 0.158 and relativeX < 0.218:
+            if self.shiftToggle==0:
+               keyPressed="2"
+            else:
+               keyPressed="@"
+         if relativeX > 0.225 and relativeX < 0.284:
+            if self.shiftToggle==0:
+               keyPressed="3"
+            else:
+               keyPressed="#"
+         if relativeX > 0.291 and relativeX < 0.350:
+            if self.shiftToggle==0:
+               keyPressed="4"
+            else:
+               keyPressed="$"
+         if relativeX > 0.358 and relativeX < 0.417:
+            if self.shiftToggle==0:
+               keyPressed="5"
+            else:
+               keyPressed="%"
+         if relativeX > 0.424 and relativeX < 0.483:
+            if self.shiftToggle==0:
+               keyPressed="6"
+            else:
+               keyPressed="^"
+         if relativeX > 0.490 and relativeX < 0.549:
+            if self.shiftToggle==0:
+               keyPressed="7"
+            else:
+               keyPressed="&"
+         if relativeX > 0.558 and relativeX < 0.616:
+            if self.shiftToggle==0:
+               keyPressed="8"
+            else:
+               keyPressed="*"
+         if relativeX > 0.623 and relativeX < 0.682:
+            if self.shiftToggle==0:
+               keyPressed="9"
+            else:
+               keyPressed="("
+         if relativeX > 0.689 and relativeX < 0.748:
+            if self.shiftToggle==0:
+               keyPressed="0"
+            else:
+               keyPressed=")"
+         if relativeX > 0.755 and relativeX < 0.814:
+            if self.shiftToggle==0:
+               keyPressed="-"
+            else:
+               keyPressed="_"
+         if relativeX > 0.821 and relativeX < 0.880:
+            if self.shiftToggle==0:
+               keyPressed="="
+            else:
+               keyPressed="+"
+         if relativeX > 0.887 and relativeX < 0.982:
+            #keyPressed="Bksp"
+            self.parentwidget.config(state=NORMAL)
+            try:
+               self.parentwidget.delete("%s-1c" % INSERT, INSERT) 
+            except:
+               entryinsertpoint=self.parentwidget.index(INSERT)
+               self.parentwidget.delete(entryinsertpoint-1,entryinsertpoint)
+            self.parentwidget.config(state=DISABLED)
+      #
+      # ROW 2
+      #
+      if relativeY > 0.249 and relativeY < 0.413:
+         if relativeX > 0.020 and relativeX < 0.131:
+            keyPressed="\t"
+         if relativeX > 0.139 and relativeX < 0.198:
+            if self.shiftToggle==0:
+               keyPressed="q"
+            else:
+               keyPressed="Q"
+         if relativeX > 0.206 and relativeX < 0.265:
+            if self.shiftToggle==0:
+               keyPressed="w"
+            else:
+               keyPressed="W"
+         if relativeX > 0.272 and relativeX < 0.331:
+            if self.shiftToggle==0:
+               keyPressed="e"
+            else:
+               keyPressed="E"
+         if relativeX > 0.339 and relativeX < 0.396:
+            if self.shiftToggle==0:
+               keyPressed="r"
+            else:
+               keyPressed="R"
+         if relativeX > 0.405 and relativeX < 0.464:
+            if self.shiftToggle==0:
+               keyPressed="t"
+            else:
+               keyPressed="T"
+         if relativeX > 0.472 and relativeX < 0.529:
+            if self.shiftToggle==0:
+               keyPressed="y"
+            else:
+               keyPressed="Y"
+         if relativeX > 0.536 and relativeX < 0.595:
+            if self.shiftToggle==0:
+               keyPressed="u"
+            else:
+               keyPressed="U"
+         if relativeX > 0.604 and relativeX < 0.663:
+            if self.shiftToggle==0:
+               keyPressed="i"
+            else:
+               keyPressed="I"
+         if relativeX > 0.670 and relativeX < 0.728:
+            if self.shiftToggle==0:
+               keyPressed="o"
+            else:
+               keyPressed="O"
+         if relativeX > 0.735 and relativeX < 0.794:
+            if self.shiftToggle==0:
+               keyPressed="p"
+            else:
+               keyPressed="P"
+         if relativeX > 0.801 and relativeX < 0.860:
+            if self.shiftToggle==0:
+               keyPressed="["
+            else:
+               keyPressed="{"
+         if relativeX > 0.869 and relativeX < 0.928:
+            if self.shiftToggle==0:
+               keyPressed="]"
+            else:
+               keyPressed="}"
+         if relativeX > 0.934 and relativeX < 0.993:
+            #keyPressed="DEL"
+            self.parentwidget.config(state=NORMAL)
+            self.parentwidget.delete('insert')
+            self.parentwidget.config(state=DISABLED)
+      #
+      # ROW 3
+      #
+      if relativeY > 0.433 and relativeY < 0.602:
+         if relativeX > 0.092 and relativeX < 0.151:
+            if self.shiftToggle==0:
+               keyPressed="a"
+            else:
+               keyPressed="A"
+         if relativeX > 0.158 and relativeX < 0.217:
+            if self.shiftToggle==0:
+               keyPressed="s"
+            else:
+               keyPressed="S"
+         if relativeX > 0.224 and relativeX < 0.283:
+            if self.shiftToggle==0:
+               keyPressed="d"
+            else:
+               keyPressed="D"
+         if relativeX > 0.290 and relativeX < 0.348:
+            if self.shiftToggle==0:
+               keyPressed="f"
+            else:
+               keyPressed="F"
+         if relativeX > 0.355 and relativeX < 0.415:
+            if self.shiftToggle==0:
+               keyPressed="g"
+            else:
+               keyPressed="G"
+         if relativeX > 0.422 and relativeX < 0.481:
+            if self.shiftToggle==0:
+               keyPressed="h"
+            else:
+               keyPressed="H"
+         if relativeX > 0.489 and relativeX < 0.547:
+            if self.shiftToggle==0:
+               keyPressed="j"
+            else:
+               keyPressed="J"
+         if relativeX > 0.555 and relativeX < 0.613:
+            if self.shiftToggle==0:
+               keyPressed="k"
+            else:
+               keyPressed="K"
+         if relativeX > 0.620 and relativeX < 0.680:
+            if self.shiftToggle==0:
+               keyPressed="l"
+            else:
+               keyPressed="L"
+         if relativeX > 0.687 and relativeX < 0.746:
+            if self.shiftToggle==0:
+               keyPressed=";"
+            else:
+               keyPressed=":"
+         if relativeX > 0.753 and relativeX < 0.812:
+            if self.shiftToggle==0:
+               keyPressed="'"
+            else:
+               keyPressed="\""
+         if relativeX > 0.816 and relativeX < 0.873:
+            if self.shiftToggle==0:
+               keyPressed="\\"
+            else:
+               keyPressed="|"
+         if relativeX > 0.890 and relativeX < 0.990:
+            keyPressed="\n"
+      #
+      # ROW 4
+      #
+      if relativeY > 0.623 and relativeY < 0.791:
+         if relativeX > 0.080 and relativeX < 0.170:
+            if self.shiftToggle == 0:
+               self.shiftToggle=1
+               self.parentwidgetKeyboardWin.background_label.configure(image=self.background_image_uc_scaled)
+            else:
+               self.shiftToggle=0
+               self.parentwidgetKeyboardWin.background_label.configure(image=self.background_image_lc_scaled)
+         if relativeX > 0.178 and relativeX < 0.238:
+            if self.shiftToggle==0:
+               keyPressed="z"
+            else:
+               keyPressed="Z"
+         if relativeX > 0.245 and relativeX < 0.304:
+            if self.shiftToggle==0:
+               keyPressed="x"
+            else:
+               keyPressed="X"
+         if relativeX > 0.311 and relativeX < 0.370:
+            if self.shiftToggle==0:
+               keyPressed="c"
+            else:
+               keyPressed="C"
+         if relativeX > 0.378 and relativeX < 0.437:
+            if self.shiftToggle==0:
+               keyPressed="v"
+            else:
+               keyPressed="V"
+         if relativeX > 0.444 and relativeX < 0.503:
+            if self.shiftToggle==0:
+               keyPressed="b"
+            else:
+               keyPressed="B"
+         if relativeX > 0.510 and relativeX < 0.568:
+            if self.shiftToggle==0:
+               keyPressed="n"
+            else:
+               keyPressed="N"
+         if relativeX > 0.575 and relativeX < 0.634:
+            if self.shiftToggle==0:
+               keyPressed="m"
+            else:
+               keyPressed="M"
+         if relativeX > 0.641 and relativeX < 0.700:
+            if self.shiftToggle==0:
+               keyPressed=","
+            else:
+               keyPressed="<"
+         if relativeX > 0.708 and relativeX < 0.767:
+            if self.shiftToggle==0:
+               keyPressed="."
+            else:
+               keyPressed=">"
+         if relativeX > 0.774 and relativeX < 0.833:
+            if self.shiftToggle==0:
+               keyPressed="/"
+            else:
+               keyPressed="?"
+         if relativeX > 0.840 and relativeX < 0.931:
+            if self.shiftToggle == 0:
+               self.shiftToggle=1
+               self.parentwidgetKeyboardWin.background_label.configure(image=self.background_image_uc_scaled)
+            else:
+               self.shiftToggle=0
+               self.parentwidgetKeyboardWin.background_label.configure(image=self.background_image_lc_scaled)
+      #
+      # ROW 5
+      #
+      if relativeY > 0.795 and relativeY < 0.995:
+         if relativeX > 0.282 and relativeX < 0.731:
+            keyPressed=" "
+         if relativeX > 0.805 and relativeX < 0.995:
+            # Arrow Keys
+            if relativeY > 0.900 and relativeY < 0.995:
+
+               if relativeX > 0.805 and relativeX < 0.863:
+                  #keyPressed="LEFT"
+                  # Sadly the "Entry" and "Text" widgets behave differently when asked for "index".
+                  # If we try to split the Entry index, we get an "AttributeError"
+                  try:
+                     currentpos=self.parentwidget.index('insert').split('.')
+                     currentline=currentpos[0]
+                     currentcol=currentpos[1]
+                     desiredcol=int(currentcol)-1
+                     self.parentwidget.mark_set('insert' , currentline+'.'+str(desiredcol))
+                  except AttributeError:   
+                     currentcol=self.parentwidget.index(INSERT)
+                     desiredcol=int(currentcol)-1
+                     self.parentwidget.icursor(desiredcol)
+                  except:
+                     tkMessageBox.showwarning("Exception", "Exception: Can not determine parent widget to pass 'left arrow' to.")
+                     return
+
+               if relativeX > 0.869 and relativeX < 0.928:
+                  #keyPressed="DOWN"
+                  try:
+                     currentpos=self.parentwidget.index('insert').split('.')
+                     currentline=currentpos[0]
+                     currentcol=currentpos[1]
+                     desiredline=int(currentline)+1
+                     self.parentwidget.mark_set('insert' , str(desiredline)+'.'+currentcol)
+                  except AttributeError:   
+                     currentcol=self.parentwidget.index(INSERT)
+                     desiredcol=int(currentcol)+1
+                     self.parentwidget.icursor(desiredcol)
+                  except:
+                     tkMessageBox.showwarning("Exception", "Exception: Can not determine parent widget to pass 'down arrow' to.")
+                     return
+
+               if relativeX > 0.935 and relativeX < 0.995:
+                  #keyPressed="RIGHT"
+                  try:
+                     currentpos=self.parentwidget.index('insert').split('.')
+                     currentline=currentpos[0]
+                     currentcol=currentpos[1]
+                     desiredcol=int(currentcol)+1
+                     self.parentwidget.mark_set('insert' , currentline+'.'+str(desiredcol))
+                  except AttributeError:   
+                     currentcol=self.parentwidget.index(INSERT)
+                     desiredcol=int(currentcol)+1
+                     self.parentwidget.icursor(desiredcol)
+                  except:
+                     tkMessageBox.showwarning("Exception", "Exception: Can not determine parent widget to pass 'right arrow' to.")
+                     return
+                     
+            if relativeX > 0.869 and relativeX < 0.928 and relativeY > 0.795 and relativeY < 0.888:
+               #keyPressed="UP"
+               try:
+                  currentpos=self.parentwidget.index('insert').split('.')
+                  currentline=currentpos[0]
+                  currentcol=currentpos[1]
+                  desiredline=int(currentline)-1
+                  self.parentwidget.mark_set('insert' , str(desiredline)+'.'+currentcol)
+               except AttributeError:   
+                  currentcol=self.parentwidget.index(INSERT)
+                  desiredcol=int(currentcol)-1
+                  self.parentwidget.icursor(desiredcol)
+               except:
+                  tkMessageBox.showwarning("Exception", "Exception: Can not determine parent widget to pass 'up arrow' to.")
+                  return
+
+      # Most of the keys just insert a character.
+      # If this event needs to insert, it will be done here.
+      # Some keys don't insert; their action happens 
+      # directly above, and keyPressed is blank.
+      # The "see" method ensures the window scrolls to the insert point.
+      if keyPressed != "":
+         self.parentwidget.config(state=NORMAL)
+         self.parentwidget.insert(INSERT,keyPressed)
+         self.parentwidget.config(state=DISABLED)
+
+      # After a key-press, and even if "keyPress" was blank, 
+      # try to update the cursor "mycurs" to the current INSERT position.
+      # AND update the "mycurslinehi" to highlight the current line.
+      # Also, update the scrollbar to ensure we can still see the insert point.
+      # This will only work when parentwidget is 'Text' , not 'Entry'. 
+      # because the 'Entry' widget cannot accept tags.
+      try:
+         self.parentwidget.tag_remove('mycurs', 1.0, 'end')
+         self.parentwidget.tag_add("mycurs", INSERT+'-0c', INSERT+'+1c')    
+         self.parentwidget.tag_remove('mycurslinehi', 1.0, 'end')
+         self.parentwidget.tag_add("mycurslinehi", 'insert lineend', 'insert lineend'+'+1c')
+         self.parentwidget.see(INSERT)
+      except:
+         return
+
+
+######################################################################################
 # The main loop here                                                                 #
 ######################################################################################
 root=Tk() 
-root.title("PyEyeCrypt (%s)   -  Copyright (C) 2015:   Python-based Open Source GUI text encryption" %PyEyeCryptVersion)
+root.title("PyEyeCrypt (%s)   -  Copyright (C) 2015:   Python-based Open Source Text Encryption GUI" %PyEyeCryptVersion)
 
 # Allow the root window to expand..col=0,2,21,31,32,51, row=0,10,19
 root.grid_columnconfigure(0,weight=1)
@@ -1664,6 +2480,7 @@ QRlist.append(2)
 # Since this is done in descending order, the largest font which fits will be at the beginning of the list.
 bestdonatefontsize=QRlist[0]
 
+# If the donatefont needs to be smaller, use it as the bestfontsize
 if bestdonatefontsize < bestfontsize:
    bestfontsize=bestdonatefontsize
 
@@ -1672,6 +2489,11 @@ frame_width=int(w*2*1.354)
 user_defined_frame_width=frame_width
 frame_height=int(h*36*1.54)
 user_defined_frame_height=frame_height
+
+# Set geometry of Clickable Keyboard using Clear Text Widget width "w" and height "h"
+# Clickable Keyboard is 2252 x 784 px. 
+# Make sure the new window is always SMALLER than the width of the existing ClearText widget by adding 1.0.
+ckickableKeyboardSizeDenominator=int( (float(2252)/float(w)) + 1.0 )
 
 # Define initial user-entered text content as ""
 user_entered_ClearText=""
@@ -1688,48 +2510,137 @@ root.wm_geometry("%dx%d%+d%+d" % (frame_width,frame_height,0, 0))
 # Note: we will ONLY ever use PRNG in XOR with "os.urandom"  
 desiredEntropyBits=256
 initialEntropyWindow=EntropyWindow(desiredEntropyBits)
+root.deiconify()
+root.lift()
+try:
+   initialEntropyWindow.entropywin.attributes("-topmost", True)
+except:
+   initialEntropyWindow.entropywin.lift()
 
 #####################################################
-# Small diversion from main loop to bring the gui window to the foreground 
-# For now, I'll just go with deiconify(),lift(),focus_force(), though this does not work on OSX.
+# Detect OS, and possibly bring the gui window to the foreground. 
+# The basic methods are deiconify(),lift(),focus_force(), though this does not work on OSX.
 # If we're working on OSX, the focus will not be set on the application.
 # we can force it in 10.X Kernel with osascript.
+# Linux prtion used https://github.com/hpcugent/easybuild/wiki/OS_flavor_name_version
+#####################################################
 theOS=platform.system()
 print "theOS=", theOS
+
+#####################################################
+# OSX
+#####################################################
 if theOS=="Darwin":
-    print "Darwin / OSX, forcing focus may be required..."
-    theKernelVersionMajor=os.popen('''uname -r | awk -F '.' '{print $1 "."}' | tr -d '\n' ''').read()
-    print "theKernelVersionMajor=",theKernelVersionMajor
-    if theKernelVersionMajor=="10.":
-        print "Kernel Version is 10.X, using osascript to force focus.."
-        os.system('''/usr/bin/osascript -e 'tell app "Finder" to set frontmost of process "Python" to true' ''')
-    # Whatever Kernel version/flavour of OSX we are in, make the entropy window topmost..
-    initialEntropyWindow.entropywin.attributes("-topmost", True)
+   # Darwin Releases...
+   # 10.8   (OSX Snow Leopard)
+   # 12.6.0 (Last release of OSX Mountain Lion)
+   # PyEyeCrypt Security Cutoff here: Mavericks was a free upgrade; much more cloud-based.
+   # 13.0   (OSX Mavericks)
+   # 13.4   (Last release of OSX Mavericks)
+   # 14.0   (OSX Yosemite)
+   # ??.?   (OSX El Capitan) 
+   DarwinKernelMajor=99  #<- a big number, so assume 'bad' OS.
+   DarwinKernelMinor=99  #<- a big number, so assume 'bad' OS.
+   try:
+      DarwinKernel=platform.release().split('.')
+      DarwinKernelMajor=int(DarwinKernel[0])
+      DarwinKernelMinor=int(DarwinKernel[1])
+      print "Kernel Major: ",DarwinKernelMajor
+      print "Kernel Minor: ",DarwinKernelMinor 
+
+      # Force the focus in OSX (lift() focus_force() doesn't work!
+      print "Darwin / OSX, forcing focus may be required..."
+      if DarwinKernelMajor >= 10:
+         print "Kernel Version is >= 10.X, using osascript to force focus.."
+         os.system('''/usr/bin/osascript -e 'tell app "Finder" to set frontmost of process "Python" to true' ''')
+
+         #This needs to be done again, unfortunately.
+         try:
+            initialEntropyWindow.entropywin.attributes("-topmost", True)
+         except:
+            initialEntropyWindow.entropywin.lift()
+    
+      # PyEyeCrypt will assume "clickable Keyboard" mode for Kernels >= 13.0.0
+      if DarwinKernelMajor < 13:
+         isBadOS=0
+      else:
+         isBadOS=1
+   except:
+      isBadOS=1      
+
+#####################################################
+# Windows
+#####################################################
 elif theOS=="Windows":
-   # Both print and showerror...
-   print "==============================================================="
-   print "==============================================================="
-   print "==============================================================="
-   print "Detected Windows >>>  Exiting,  Sorry!"
-   print ""
-   print "The new Windows 10 Privacy Statement includes the words:"
-   print "'your typed and handwritten words are collected'"
-   print ""
-   print "This means that passwords typed by a single recipient using"
-   print "Win10 would, *unknown to the sender*, jeopardise the sender's"
-   print "password!"
-   print ""
-   print "This behaviour is akin to a keylogging virus."
-   print "It is therefore NOT suitable to use Win10 with PyEyeCrypt!"
-   print "==============================================================="
-   print "==============================================================="
-   print "==============================================================="
-   tkMessageBox.showerror("Error", "Detected Windows >>>  Exiting,  Sorry! \n\nThe new Windows 10 Privacy Statement includes the words:\n'your typed and handwritten words are collected' \n\nTHINK VERY CAREFULLY before you subvert this check. This means that passwords typed by a single recipient using Win10 would, *unknown to the sender*, expose the sender's password and text! \n\nThis behaviour is akin to a keylogging virus. It is therefore NOT suitable to use Win10 with PyEyeCrypt!")
-   sys.exit()
+   # Trust Windows as far as you can throw it.  
+   isBadOS=1    
+   
+#####################################################
+# Linux
+#####################################################
+elif theOS=="Linux":
+   #Opposite strategy to Windows: assume Linux is good and trap the bad.
+   isBadOS=0
+
+   # Ubuntu and "unity" desktop are known to compromise user data.
+   # "elementary os" is essentially ubuntu.
+   # Linux Mint includes proprietary software, ergo the OS is not open-source.
+   try:
+      LinuxDistribution=platform.linux_distribution()[0]
+      print "Linux Distro: ",LinuxDistribution
+      if LinuxDistribution=="Ubuntu":
+         isBadOS=1
+      elif LinuxDistribution=="ubuntu":
+         isBadOS=1
+      elif LinuxDistribution.startswith("elementary"):
+         isBadOS=1
+      elif LinuxDistribution.startswith("Elementary"):
+         isBadOS=1
+      elif LinuxDistribution=="LinuxMint":
+         isBadOS=1
+      elif LinuxDistribution=="linuxmint":
+         isBadOS=1
+      elif LinuxDistribution=="Mint":
+         isBadOS=1
+      elif LinuxDistribution=="mint":
+         isBadOS=1
+   except:
+      print "platform.linux_distribution() apparently wasn't working. Assume Bad OS."
+      isBadOS=1    
+   #Since it is known that platform.linux_distribution() sometimes returns debian instead of ubuntu..
+   try:
+      LinuxDistributionTry2=platform.dist()[0]
+      print "Linux Distro Try 2: ",LinuxDistributionTry2
+      if LinuxDistributionTry2=="Ubuntu":
+         isBadOS=1
+      elif LinuxDistributionTry2=="ubuntu":
+         isBadOS=1
+   except:
+      # Less stringent here since platform.dist has been depricated..      
+      print "platform.dist() wasn't working... carry on"
+   # Now look for unity/ubuntu in "DESKTOP_SESSION"
+   desktop_session = os.environ.get("DESKTOP_SESSION")   
+   if desktop_session:
+      if desktop_session in ["unity", "Unity" ]:
+         isBadOS=1
+      elif desktop_session.startswith("ubuntu"):
+         isBadOS=1
+      elif desktop_session.startswith("lubuntu"): # LXDE in Ubuntu
+         isBadOS=1
+      elif desktop_session.startswith("kubuntu"): # KDE in ubuntu
+         isBadOS=1
+      elif desktop_session.startswith("xubuntu"): # XFCE in ubuntu
+         isBadOS=1
+      elif desktop_session.startswith("ubuntu"): 
+         isBadOS=1
+         
+#####################################################
+#Other operating systems; e.g. Solaris, DSM..  assume 'bad' for now.
+#####################################################
 else:
-   root.deiconify()
-   root.lift()
-# END Small diversion from main loop to bring gui window to foreground
+   isBadOS=1    
+#####################################################
+# END Small diversion from main loop to detect OS and bring gui window to foreground
 #####################################################
 
 # Wait for the Entropy to be gathered before checking sessionseed...
