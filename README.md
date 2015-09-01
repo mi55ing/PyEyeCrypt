@@ -15,8 +15,8 @@ MD5 (executables/OSX_64bit/PyEyeCrypt.app.tgz)         = fec736a5a36db11cfa1e3ca
 MD5 (executables/Win7+_64bit/PyEyeCrypt.exe)           = 2c22acb00d452f702cb2b9210e511668<br>
 MD5 (executables/ScientificLinux5.11_64bit/PyEyeCrypt) = 35ad9a6afee62930c9d3f203d21c6b11<br>
 MD5 (executables/ScientificLinux6.6_64bit/PyEyeCrypt)  = 7e531fdb7d7cb4a0d3c94e25771b64de<br>
-MD5 (keyblc\*.gif)                                      = df94e49c5ed49837b3c32b97d5fa2ad9<br>
-MD5 (keybuc\*.gif)                                      = 96ad7e23452acec7f3ac7b435b4e7b45<br>
+MD5 (keyblc\*.gif)                                     = df94e49c5ed49837b3c32b97d5fa2ad9<br>
+MD5 (keybuc\*.gif)                                     = 96ad7e23452acec7f3ac7b435b4e7b45<br>
 
 **OSX/Linux Usage:**
 
@@ -32,7 +32,7 @@ OSX : Untar the .tgz file & drag the app onto your Dock, Desktop or wherever. Do
 
 **Windows:**
 
-Simply download and double-click the ```PyEyeCrypt.exe``` file in the ```pyinstaller-executable-Win7-64bit``` directory.
+Simply download and double-click the ```PyEyeCrypt.exe``` file in the ```executables\\Win7+_64bit``` directory.
 
 **'Naughty' Operating Systems:**
 
@@ -46,5 +46,5 @@ PyEyeCrypt will still run when keylogging is suspected, but ClearText and Passwo
 
 **Uninstall:**
 
-Executable: Simply delete the executable file (it leaves nothing else hidden anywhere)<br>
-Python    : Delete the downloaded files/directory. PyEyeCrypt does not create anything outside the run-area.
+Simply delete the downloaded files/directory. <br>
+PyEyeCrypt does not create or store anything outside the directory in which it runs.
