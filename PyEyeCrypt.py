@@ -2,7 +2,7 @@
 # THE ABOVE LINE IS REQUIRED TO ENABLE UTF-8 DISPLAY IN THE TEXT WIDGETS.            # 
 ######################################################################################
 #                                                                                    #
-PyEyeCryptVersion="v1.1"                                                             #
+PyEyeCryptVersion="v1.2"                                                             #
 #                                                                                    #
 ######################################################################################
 #                                                                                    #
@@ -31,6 +31,22 @@ PyEyeCryptVersion="v1.1"                                                        
 # Change Log                                                                         #
 # ==========                                                                         #
 #                                                                                    #
+# v1.2:                                                                              #
+#  o Auto-remove any extra Spaces or "Enter" [CR/LF] characters in the Encrypted     # 
+#    Text window on Decrypt action.                                                  #
+#  o Allow user to resize text in both main text windows and password (Font Size ±)  #
+#  o Changed the font of Password/Salt/Key/IV/PBKDF2 to 'arial' with 30 chars.       #
+#    -Also set Password font to ( "arial", bestpasswordfontsize), so it's            #
+#     initially at least the same size as salt/IV/Key, but then increases in line    #
+#     with the sizes of the other "resizable" fields, ClearText/EncryptedText.       #
+#  o Fixed cosmetic bug in Decrypt function when PBKDF2 iterations=0                 #
+#    (message said encrypt, when it should have said decrypt).                       #
+#  o Commented out irritating messages for salt/IV/Key overwrite for Encrypt/Decrypt #
+#  o Modified warning message about padding to remove confusing details              #
+#  o Modified Font measurements to use "weight=tkFont.BOLD" in case that affects     #
+#    the measured widths.                                                            #
+#  o Added Font Size 13 into the list of available sizes to be tested                #
+#                                                                                    #
 # v1.1:                                                                              #
 # o Added concept of "isBadOS" to enforce spying countermeasures like clickable      # 
 #   keyboard.                                                                        #
@@ -53,10 +69,9 @@ PyEyeCryptVersion="v1.1"                                                        
 #    -add option to randomise key positions on clickable keyboard                    #
 #    -randomise the clickabe keyboard overall window position slightly +-30 pixels   #
 # 3: Add a "characters to complete block" counter under/on top of Cleartext.         #
-#     -remove the annoying message about padding.                                    #
 # 4: Place Clickable Keyboard higher up if it exceeds the screen boundaries.         #
 # 5: Allow use of SHA3 to replace SHA2 in PBKDF2 key generation.                     #
-#                                                                                    #
+# 6: Public Key Cryptography - PGP                                                   #
 #                                                                                    #
 #                                                                                    #
 ######################################################################################
@@ -132,6 +147,7 @@ class MainWindowFrame(Frame):
        self.EncryptedTextScrollbar.grid(row=10, rowspan=10, column =52, pady=(0,0), padx=(0,10),sticky=W+N+S);
        self.EncryptedText.grid(row=10, rowspan=10, column=32, columnspan=20, padx=(10,0), pady=(0,0), sticky=N+S+E+W);
        self.EncryptedText.config(font=( "Courier", bestfontsize, 'bold' ))
+       self.columnconfigure(31, weight=1)
        self.columnconfigure(34, weight=1)
        self.columnconfigure(49, weight=1)
        self.rowconfigure(10, weight=1)
@@ -146,27 +162,27 @@ class MainWindowFrame(Frame):
        self.ChosenEncryptMethod=StringVar()
        self.ChosenEncryptMethod.set("AES-128 CBC") #default value
        self.EncryptMethod = OptionMenu( self, self.ChosenEncryptMethod, "AES-128 CBC", "AES-128 ECB");
-       self.EncryptMethod.grid(row=13,column=27,pady=(40,0),padx=10,sticky=S)
+       self.EncryptMethod.grid(row=12,column=27,pady=(40,0),padx=10,sticky=S)
        ToolTip.ToolTip(self.EncryptMethod, 'Cipher Mode: CBC-mode is recommended.')
               
        self.Encrypt = Button(self)
        self.Encrypt["text"] = ">>ENCRYPT>>"
        self.Encrypt["fg"] = "red"
        self.Encrypt["command"] = self.ValidateEncryptText
-       self.Encrypt.grid(row=14,column=27, pady=(0,0),padx=10, sticky=S+N)      
+       self.Encrypt.grid(row=13,column=27, pady=(0,0),padx=10, sticky=S+N)      
        
        self.Decrypt = Button(self)
        self.Decrypt["text"] = "<<DECRYPT<<"
        self.Decrypt["fg"] = "red"
        self.Decrypt["command"] = self.ValidateDecryptText
-       self.Decrypt.grid(row=15,column=27, pady=(0,00),padx=10, sticky=N)      
+       self.Decrypt.grid(row=14,column=27, pady=(0,00),padx=10, sticky=N)      
         
        self.CheckBoxValueHexMode=IntVar()
        self.HexModeButton = Checkbutton(self)
        self.HexModeButton["text"] = "Hex Mode"
        self.HexModeButton["command"] = self.HexEnable
        self.HexModeButton["variable"] = self.CheckBoxValueHexMode
-       self.HexModeButton.grid(row=16,column=27,padx=(80,60), pady=(0,0), sticky=N+W) 
+       self.HexModeButton.grid(row=15,column=27,padx=(80,60), pady=(0,0), sticky=N+W) 
        ToolTip.ToolTip(self.HexModeButton, 'Hex Mode: Used for trying out Known Answer Test (KAT) Vectors')       
 
        self.CheckBoxValueClickKeyMode=IntVar()
@@ -174,7 +190,7 @@ class MainWindowFrame(Frame):
        self.ClickKeyModeButton["text"] = "Click-to-type"
        self.ClickKeyModeButton["command"] = self.ClickToTypeEnable
        self.ClickKeyModeButton["variable"] = self.CheckBoxValueClickKeyMode
-       self.ClickKeyModeButton.grid(row=17,column=27,padx=(80,60), pady=(0,0), sticky=N+W) 
+       self.ClickKeyModeButton.grid(row=16,column=27,padx=(80,60), pady=(0,0), sticky=N+W) 
        self.ClickKeyModeButton.select()
        self.ClickKeyModeButton.config(state=DISABLED)
        ToolTip.ToolTip(self.ClickKeyModeButton, 'Click-to-type Mode: Improves user security with "Clickable Keyboards", if keylogging is suspected.')       
@@ -189,7 +205,7 @@ class MainWindowFrame(Frame):
        self.DisplayEyesButton["text"] = "Eyes"
        self.DisplayEyesButton["command"] = self.DisplayEyes
        self.DisplayEyesButton["variable"] = self.CheckBoxValueDisplayEyes
-       self.DisplayEyesButton.grid(row=18,column=27,padx=(80,60), pady=(0,0), sticky=N+W) 
+       self.DisplayEyesButton.grid(row=17,column=27,padx=(80,60), pady=(0,0), sticky=N+W) 
        self.DisplayEyesButton.config(state=DISABLED)
 
        self.CheckBoxValueDisplayDonate=IntVar()
@@ -197,11 +213,33 @@ class MainWindowFrame(Frame):
        self.DisplayDonateButton["text"] = "Donate"
        self.DisplayDonateButton["command"] = self.DisplayDonate
        self.DisplayDonateButton["variable"] = self.CheckBoxValueDisplayDonate
-       self.DisplayDonateButton.grid(row=19,column=27,padx=(80,60), pady=(0,10), sticky=N+W) 
+       self.DisplayDonateButton.grid(row=18,column=27,padx=(80,60), pady=(0,10), sticky=N+W) 
        self.DisplayDonateButton.config(state=DISABLED)
 
-       self.user_entry_password= self.makeentry(self, 32, show="*", background="black",foreground="yellow", insertbackground="yellow",highlightthickness=0, disabledforeground="yellow",disabledbackground="black");
-       self.user_entry_password.grid( row= 29, column=27,pady=(80,0), sticky=W+S)
+
+       self.TextFontButtonLabel = Label(self, text="Font Size")
+       self.TextFontButtonLabel.grid(row=19,column=27,padx=(0),sticky=N+E+W)
+       
+       self.TempFontOffset=0
+
+       self.TextFontPlus = Button(self)
+       self.TextFontPlus["text"] = "+"
+       self.TextFontPlus["fg"] = "red"
+       self.TextFontPlus["command"] = self.TextFontPlusTwo
+       self.TextFontPlus.grid(row=19,column=27, pady=(0,0),padx=(100,0), sticky=N)      
+
+
+       self.TextFontMinus = Button(self)
+       self.TextFontMinus["text"] = "-"
+       self.TextFontMinus["fg"] = "red"
+       self.TextFontMinus["command"] = self.TextFontMinusTwo
+       self.TextFontMinus.grid(row=19,column=27, pady=(0,0),padx=(0,100), sticky=N)      
+
+
+
+
+       self.user_entry_password= self.makeentry(self, 30, show="*", background="black",foreground="yellow", insertbackground="yellow",highlightthickness=0, disabledforeground="yellow",disabledbackground="black",font=( 'arial', bestfontsize ));
+       self.user_entry_password.grid( row= 29, column=27,columnspan=5,pady=(80,0), sticky=W+S)
        Label(self, text="Password (Secret!):").grid(row=29, column=21, padx=(10,0),pady=(80,0), sticky=E+S)
        if isBadOS==1:
           self.user_entry_password.config(state=DISABLED)
@@ -219,9 +257,9 @@ class MainWindowFrame(Frame):
        self.DisplayPasswordButton["text"] = "Reveal"
        self.DisplayPasswordButton["command"] = self.ShowHidePass 
        self.DisplayPasswordButton["variable"] = self.CheckBoxValueDisplayPassword
-       self.DisplayPasswordButton.grid(row=29,column=32,padx=(0,0), pady=(80,0), sticky=W+S) 
+       self.DisplayPasswordButton.grid(row=29,column=32,padx=(0,0), pady=(80,0), sticky=W) 
 
-       self.user_entry_salt= self.makeentry(self, 32, background="black",foreground="yellow", insertbackground="yellow",highlightthickness=0, disabledforeground="gray50",disabledbackground="gray81");
+       self.user_entry_salt= self.makeentry(self, 30, background="black",foreground="yellow", insertbackground="yellow",highlightthickness=0, disabledforeground="gray50",disabledbackground="gray81", font='arial');
        self.user_entry_salt.grid( row= 30, column=27,pady=(0,0), sticky=W+N+S)
        self.user_entry_salt_label=Label(self, fg="gray50" ,text="Password Salt:")
        self.user_entry_salt_label.grid(row=30, column=21, padx=(10,0),pady=(0,0), sticky=E)
@@ -241,7 +279,7 @@ class MainWindowFrame(Frame):
        self.EnableSaltOverrideButton["variable"] = self.CheckBoxValueEnableSaltOverride
        self.EnableSaltOverrideButton.grid(row=30,column=34,padx=(0,0), pady=(0,0), sticky=W) 
 
-       self.user_entry_key= self.makeentry(self, 32, show="*", background="black",foreground="yellow", insertbackground="yellow",highlightthickness=0, disabledforeground="gray50",disabledbackground="gray81");
+       self.user_entry_key= self.makeentry(self, 30, show="*", background="black",foreground="yellow", insertbackground="yellow",highlightthickness=0, disabledforeground="gray50",disabledbackground="gray81", font='arial');
        self.user_entry_key.grid( row= 31, column=27,pady=(0,0), sticky=W+N+S)
        self.user_entry_key_label=Label(self, fg="gray50", text="Key (Secret!):")
        self.user_entry_key_label.grid(row=31, column=21, padx=(10,0),pady=(0,0), sticky=E+N)
@@ -269,7 +307,7 @@ class MainWindowFrame(Frame):
        self.EnableKeyOverrideButton["variable"] = self.CheckBoxValueEnableKeyOverride
        self.EnableKeyOverrideButton.grid(row=31,column=34,padx=(0,0), pady=(0,0), sticky=W+N) 
 
-       self.user_entry_iv= self.makeentry(self, 32, background="black",foreground="yellow", insertbackground="yellow",highlightthickness=0, disabledforeground="gray50",disabledbackground="gray81");
+       self.user_entry_iv= self.makeentry(self, 30, background="black",foreground="yellow", insertbackground="yellow",highlightthickness=0, disabledforeground="gray50",disabledbackground="gray81",font='arial');
        self.user_entry_iv.grid( row= 32, column=27,pady=(0,0), sticky=W+N+S)
        self.user_entry_iv_label=Label(self, fg="gray50", text="IV:")
        self.user_entry_iv_label.grid(row=32, column=21, padx=(10,0),pady=(0,0), sticky=E+N)
@@ -290,7 +328,7 @@ class MainWindowFrame(Frame):
        self.EnableIvOverrideButton["variable"] = self.CheckBoxValueEnableIvOverride
        self.EnableIvOverrideButton.grid(row=32,column=34,padx=(0,0), pady=(0,0), sticky=W+N) 
 
-       self.user_entry_pbkdf2_iter= self.makeentry(self, 32, show="", background="black",foreground="yellow", insertbackground="yellow",highlightthickness=0, disabledforeground="gray50",disabledbackground="gray81");
+       self.user_entry_pbkdf2_iter= self.makeentry(self, 30, show="", background="black",foreground="yellow", insertbackground="yellow",highlightthickness=0, disabledforeground="gray50",disabledbackground="gray81",font='arial');
        self.user_entry_pbkdf2_iter.grid( row= 33, column=27,pady=(0,20),padx=(0,0), sticky=W+N)
        self.user_entry_pbkdf2_iter_label=Label(self, fg="gray50", text="PBKDF2 iterations")
        self.user_entry_pbkdf2_iter_label.grid(row=33, column=21, padx=(10,0),pady=(0,20), sticky=E+N)
@@ -399,6 +437,19 @@ class MainWindowFrame(Frame):
       if self.CheckBoxValueEnableIvOverride.get()==1:
          tkMessageBox.showwarning("Encryption Warning", "Keeping 'IV': This should only ever be used for testing purposes. \n\nNEVER re-use an IV for an encrypted message." )
        
+   def TextFontPlusTwo(self):
+      self.TempFontOffset=self.TempFontOffset+2
+      self.ClearText.config(font=( "Courier", bestfontsize+self.TempFontOffset, 'bold' ))       
+      self.EncryptedText.config(font=( "Courier", bestfontsize+self.TempFontOffset, 'bold' ))       
+      self.user_entry_password.config(font=("arial",root.bestpasswordfontsize+self.TempFontOffset))
+
+   def TextFontMinusTwo(self):
+      self.TempFontOffset=self.TempFontOffset-2
+      self.ClearText.config(font=( "Courier", bestfontsize+self.TempFontOffset, 'bold' ))       
+      self.EncryptedText.config(font=( "Courier", bestfontsize+self.TempFontOffset, 'bold' ))       
+      self.user_entry_password.config(font=("arial",root.bestpasswordfontsize+self.TempFontOffset))
+
+
 
    #####################################################
    # Function to handle the "Click-to-type" button
@@ -706,6 +757,53 @@ class MainWindowFrame(Frame):
 
 
    #####################################################
+   # Function to clean the content of user-entered fields 
+   # for Spaces and CF/LF (ENTER) characters. 
+   #
+   # It is common for cut/pastes into the EncryptedText field 
+   # to have extra spaces /enter characters.
+   #
+   # Use of this function should ALWAYS be error-trapped
+   # to check for a return value of "errorTripped".
+   #####################################################
+   def HexCleanup(self, widgetToClean):
+       errorTripped=""
+       spaceTripped=0
+       enterTripped=0
+       # NB: If widgetToClean is not "editable" except via clickable keyboard, need to make it editable..
+       # NB: Not a problem for EncryptedText, as this is always editable/cut-pasteable for all OS's
+       
+       # Remove any errant SPACEs in the widget contents...
+       idx='1.0'
+       while 1:
+          # find next occurrence of SPACE (" "), exit loop if no more
+          idx = widgetToClean.search(" ", idx, nocase=1, stopindex=END)
+          if not idx: break
+          widgetToClean.delete(idx)
+          spaceTripped=1
+
+       # Remove any errant ENTER characters in the widget contents...
+       idx='1.0'
+       while 1:
+          # find next occurrence of ENTER ("\n"), exit loop if no more
+          # and rememeber, the last char in a text widget is a \n, so we leave that one for later..
+          idx = widgetToClean.search("\n", idx, nocase=1, stopindex="end - 1 chars")
+          if not idx: break
+          widgetToClean.delete(idx)
+          enterTripped=1
+
+       if spaceTripped==1:
+          errorTripped=errorTripped+"--Automatically deleted SPACES..\n"
+       if enterTripped==1:
+          errorTripped=errorTripped+" --Automatically deleted ENTER characters..\n"
+          
+       # Finally, return the value in "errorTripped" to the calling function         
+       return errorTripped
+
+
+
+
+   #####################################################
    # Function to provide random HEX padding, when given a 
    # current number of bits and a desired number of bits
    # (lengthOfHexlifiedContentInBits and BlockSizeInBits 
@@ -743,7 +841,7 @@ class MainWindowFrame(Frame):
             return "PaddingError"         
 
          # Warn the user their Clear Text is being padded.
-         tkMessageBox.showwarning("Padding Text", "Text (%s bits) is not a multiple of %s bits. Padding..  \n\nNOTE: When this text is DEcrypted, it will have spurious extra characters at the end of the message. \n\nEither lengthen the message yourself, or warn the recipient. \n\n-FOR REFERENCE: \nMissing bits from text: %s \n\n-Randombytes retrieved: %s \n\n-Hex digits required: %s \n\n-Calculated Hex Padding: %s" % (lengthOfHexlifiedContentInBits,BlockSizeInBits,finalmissingbits,randombytes,hexdigitsrequired,hexpadding))
+         tkMessageBox.showwarning("Padding Text", "Text (%s bits) is not a multiple of %s bits. Padding..  \n\nNOTE: When this text is DEcrypted, it will have spurious extra characters at the end of the message. \n\nEither lengthen the message yourself, or warn the recipient." % (lengthOfHexlifiedContentInBits,BlockSizeInBits))
          return hexpadding
       else:
          tkMessageBox.showwarning("Padding Cleartext", "PadTo128Bits(): Error - Padding not required, yet PadTo128Bits() was called. Padding FAILED." )
@@ -921,7 +1019,6 @@ class MainWindowFrame(Frame):
           if self.CheckBoxValueEnableKeyOverride.get()==1:
              self.EnableKeyOverride()
           else:
-             tkMessageBox.showwarning("Key Overwrite", "'Key' field is not empty. \n'Key' will be overwritten!" )
              # CAREFUL: if Key field is not enabled, this insert will not work!
              keywasenableda=0
              if (self.CheckBoxValueEnableKeyEntry.get()==1):
@@ -937,7 +1034,6 @@ class MainWindowFrame(Frame):
           if self.CheckBoxValueEnableIvOverride.get()==1:
              self.EnableIvOverride()
           else:
-             tkMessageBox.showwarning("IV Overwrite", "'IV' field is not empty. \n'IV' will be overwritten!" )
              # CAREFUL: if IV field is not enabled, this insert will not work!
              ivwasenableda=0
              if (self.CheckBoxValueEnableIvEntry.get()==1):
@@ -958,7 +1054,6 @@ class MainWindowFrame(Frame):
                 return 3
        else:
           if self.user_entry_salt.get()!="":
-             tkMessageBox.showwarning("Salt Overwrite", "'Salt' field is not empty. \n'Salt' will be overwritten!" )
              # CAREFUL: if Salt field is not enabled, this insert will not work!
              saltwasenableda=0
              if (self.CheckBoxValueEnableSaltEntry.get()==1):
@@ -1132,6 +1227,14 @@ class MainWindowFrame(Frame):
           tkMessageBox.showwarning("Decrypt Not Possible", "Clear Text area must be empty to decrypt" )
           return 3
 
+       # For AES, whether in HEX mode or not, we expect EncryptedText to be in hex.
+       # So, first we "clean up" the Encrypted Text.
+       # --quite often the cut/paste will have SPACEs or ENTER characters which need to be removed. 
+       cleanValidate=self.HexCleanup(self.EncryptedText)
+       if cleanValidate!="":
+          tkMessageBox.showwarning("Cleanup Encrypted Text", "PyEyeCrypt has modified the 'Encrypted Text' content: \n\n %s" % cleanValidate)
+
+
        # Function MUST NOT do anything IF "EncryptedText" is empty.
        # Unfortunately, the get() adds a newline to the text widget contents.
        # So, we must strip the trailing newline
@@ -1157,7 +1260,7 @@ class MainWindowFrame(Frame):
              return 6
        if int(PBKDF2iterations) == 0:
           #Trip an ERROR
-          tkMessageBox.showwarning("Encrypt Not Possible", "PBKDF2 iterations is zero. \n\nIt must be a positive integer to generate a Key, preferably in the tens of thousands, larger being more secure.")
+          tkMessageBox.showwarning("Decrypt Not Possible", "PBKDF2 iterations is zero. \n\nIt must be a positive integer to generate a Key, preferably in the tens of thousands, larger being more secure.")
           return 7
 
        # Blocksize, Keysize, ivsize, saltsize hold the number of bits for each of these variables.
@@ -1191,7 +1294,6 @@ class MainWindowFrame(Frame):
        #Differs relative to Encrypt! (There, salt_text is checked against salt_size and demanded if needed.)
        salt_text=self.user_entry_salt.get()
        if len(salt_text) != 0:
-          tkMessageBox.showwarning("Salt Overwrite", "'Salt' field is not empty. \n'Salt' will be overwritten!" )
           # CAREFUL: if Salt field is not enabled, this insert will not work!
           saltwasenableda=0
           if (self.CheckBoxValueEnableSaltEntry.get()==1):
@@ -1206,7 +1308,6 @@ class MainWindowFrame(Frame):
        #Differs relative to Encrypt! (There, iv_text is checked against iv_size and demanded="" for ECB mode)
        iv_text=self.user_entry_iv.get()
        if len(iv_text) != 0:
-          tkMessageBox.showwarning("IV Overwrite", "'IV' field is not empty. \n'IV' will be overwritten!" )
           # CAREFUL: if IV field is not enabled, this insert will not work!
           ivwasenableda=0
           if (self.CheckBoxValueEnableIvEntry.get()==1):
@@ -1223,7 +1324,6 @@ class MainWindowFrame(Frame):
           if self.CheckBoxValueEnableKeyOverride.get()==1:
              self.EnableKeyOverride()
           else:
-             tkMessageBox.showwarning("Key Overwrite", "'Key' field is not empty. \n'Key' will be overwritten!" )
              # CAREFUL: if Key field is not enabled, this insert will not work!
              keywasenableda=0
              if (self.CheckBoxValueEnableKeyEntry.get()==1):
@@ -1234,6 +1334,8 @@ class MainWindowFrame(Frame):
                 # Set Key back to DISABLED!
                 self.user_entry_key.config(state=DISABLED)
        
+
+
        # For AES, whether in HEX mode or not, we expect EncryptedText to be in hex.
        # So, now re-check the "allowed" characters in [0..9, a..f, A..F] for Key, Salt, IV, ClearText, Encrypted Text.
        # These were checked if we entered HEX mode, but could since have changed.
@@ -1244,6 +1346,7 @@ class MainWindowFrame(Frame):
        if validate!="":     
           tkMessageBox.showwarning("Invalid Characters", "%s has invalid characters. \n\nOnly characters \n[0..9, a..f, A..F] are allowed.\n\n--NO SPACES, or CR/LF's!--" % validate )
           return 9
+
 
        #The first "saltsize" bits will be the Salt for the Key of the Encrypted Message. 
        if saltsize > 0:
@@ -1396,11 +1499,12 @@ class MainWindowFrame(Frame):
    # Function to hide/display content with "eyes"
    #####################################################
    def DisplayEyes(self):
-       # Use the 'global' copies of these four variables, otherwise Python will try to make local copies all on its own!
+       # Use the 'global' copies of these six variables, otherwise Python will try to make local copies all on its own!
        # We need global-level memory of the user-defined window dimensions and Text content of the windows
        # to cope with users selecting the 'Eyes' or 'Donate' checkboxes.   
        global user_defined_frame_width
        global user_defined_frame_height
+       global user_defined_font_size
        global user_entered_ClearText
        global user_entered_EncryptedText
        global loopcount 
@@ -1430,13 +1534,30 @@ class MainWindowFrame(Frame):
        user_defined_frame_height_temp=IntVar()
        user_defined_frame_width_temp=self.winfo_width()
        user_defined_frame_height_temp=self.winfo_height()   
+
        if frame_width!=user_defined_frame_width_temp:
           user_defined_frame_width=user_defined_frame_width_temp
        if frame_height!=user_defined_frame_height_temp:
           user_defined_frame_height=user_defined_frame_height_temp
 
+       # Now deal with the font size in ClearText/EncryptedText/Password widgets.
+       # NB:- the (user defined) font size should the the same in all these windows
+       # We take the _temp (=current) value of font size.
+       # If the font is still the default size, we will do nothing.
+       # If the user has changed the font size, we store the user-defined values for later.
+       user_defined_font_size_temp=IntVar()
+       fontinfoClearText = tkFont.Font(font=self.ClearText['font'])
+       user_defined_font_size_temp=fontinfoClearText.actual('size')       
+       if user_defined_font_size_temp!=bestfontsize:
+          user_defined_font_size=user_defined_font_size_temp
+
        # Set the geeometry to the default size, so the eyes are displayed properly.
        root.wm_geometry("%dx%d" % (frame_width, frame_height))
+       
+       # Set the font size to the value which displays the eyes/QR code best.
+       self.ClearText.config(font=( "Courier", bestfontsize, 'bold' ))
+       self.EncryptedText.config(font=( "Courier", bestfontsize, 'bold' ))
+       self.user_entry_password.config(font=( "arial", root.bestpasswordfontsize ))
 
        # If the other button (DisplayDonate) is ON, set it to off now;
        # This will ensure we don't have both ticked; it's 'almost' radiobutton behaviour, but not quite.
@@ -1533,6 +1654,13 @@ class MainWindowFrame(Frame):
           #  we re-instate that geometry.
           if (user_defined_frame_width!=frame_width) or (user_defined_frame_height!=frame_height):
              root.wm_geometry("%dx%d" % (user_defined_frame_width, user_defined_frame_height))
+          #  and re-instate the font size selected by the user..
+          if (user_defined_font_size!=bestfontsize):
+             self.ClearText.config(font=( "Courier", user_defined_font_size, 'bold' ))
+             self.EncryptedText.config(font=( "Courier", user_defined_font_size, 'bold' ))
+             self.user_entry_password.config(font=( "arial", user_defined_font_size ))
+             
+
 
        # After we cleaned up the Text, and restored the geometry..
        # IF we are UNchecking the box... and there is any user-entered text content....
@@ -1561,11 +1689,12 @@ class MainWindowFrame(Frame):
    # Function to hide/display content with "Donate QR"
    #####################################################
    def DisplayDonate(self):
-       # Use the 'global' copies of these four variables, otherwise Python will try to make local copies all on its own!
+       # Use the 'global' copies of these five variables, otherwise Python will try to make local copies all on its own!
        # We need global-level memory of the user-defined window dimensions and Text content of the windows
        # to cope with users selecting the 'Eyes' or 'Donate' checkboxes.   
        global user_defined_frame_width
        global user_defined_frame_height
+       global user_defined_font_size
        global user_entered_ClearText
        global user_entered_EncryptedText
 
@@ -1600,8 +1729,27 @@ class MainWindowFrame(Frame):
           #self.EncryptedText.insert(END,user_defined_frame_height)
           #self.EncryptedText.insert(END,"\n")
 
+       # Now deal with the font size in ClearText/EncryptedText widgets.
+       # NB:- the (user defined) font size should the the same in both these windows
+       # We take the _temp (=current) value of font size.
+       # If the font is still the default size, we will do nothing.
+       # If the user has changed the font size, we store the user-defined values for later.
+       user_defined_font_size_temp=IntVar()
+       fontinfoClearText = tkFont.Font(font=self.ClearText['font'])
+       user_defined_font_size_temp=fontinfoClearText.actual('size')       
+       if user_defined_font_size_temp!=bestfontsize:
+          user_defined_font_size=user_defined_font_size_temp
+
+
+
        # Set the geeometry to the default size, so the QR is displayed properly.
        root.wm_geometry("%dx%d" % (frame_width, frame_height))
+
+       # Set the font size to the value which displays the eyes/QR code best.
+       self.ClearText.config(font=( "Courier", bestfontsize, 'bold' ))
+       self.EncryptedText.config(font=( "Courier", bestfontsize, 'bold' ))
+       self.user_entry_password.config(font=( "arial", root.bestpasswordfontsize ))
+
        
        # If the other button (DisplayEyes) is ON, set it to off now;
        # This will ensure we don't have both ticked; it's 'almost' radiobutton behaviour, but not quite.
@@ -1689,6 +1837,13 @@ class MainWindowFrame(Frame):
           #  we reinstate that geometry.
           if (user_defined_frame_width!=frame_width) or (user_defined_frame_height!=frame_height):
              root.wm_geometry("%dx%d" % (user_defined_frame_width, user_defined_frame_height))
+          #  and re-instate the font size selected by the user..
+          if (user_defined_font_size!=bestfontsize):
+             self.ClearText.config(font=( "Courier", user_defined_font_size, 'bold' ))
+             self.EncryptedText.config(font=( "Courier", user_defined_font_size, 'bold' ))
+             self.user_entry_password.config(font=( "arial", user_defined_font_size ))
+
+
 
        # After we cleaned up and restored the geometry..
        # IF we are UNchecking the box... and there is any user-entered text content....
@@ -1758,6 +1913,14 @@ class MainWindowFrame(Frame):
        Frame.__init__(self, master)
        self.pack()
        self.createWidgets()
+
+       # Sort out the font for password field..using the salt field as a guide..
+       fontinfoSalt = tkFont.Font(font=self.user_entry_salt['font'])
+       salt_font_size_temp=fontinfoSalt.actual('size')       
+       if salt_font_size_temp > root.bestpasswordfontsize:
+          root.bestpasswordfontsize=salt_font_size_temp
+          self.user_entry_password.config(font=("arial",root.bestpasswordfontsize))
+
        # Start the user on the ClearText or EncryptedText Window.
        # If we have isBadOS==1, then the user typing at startup actually does do *something*, albeit in the Encrypted Text window. 
        if self.CheckBoxValueClickKeyMode.get()==0:
@@ -2438,10 +2601,11 @@ if (root.winfo_screenwidth() > 1600 and root.winfo_screenheight() >1000 ):
 # Text varies cross-platform and by python version! - so we need to get the width of 64 chars & height of 36 lines (in pixels) for courier font.
 # in sizes 6,7,8,9,10,11,12,14,16,18
 widthheightlist=[]
-for myfontsize in [6,7,8,9,10,11,12,14,16,18]:
-   font = tkFont.Font(family='courier', size=myfontsize)
+for myfontsize in [6,7,8,9,10,11,12,13,14,16,18]:
+   font = tkFont.Font(family='courier', size=myfontsize, weight=tkFont.BOLD)
    (fontwidth,fontheight) = (font.measure("1234567890123456789012345678901234567890123456789012345678901234"),font.metrics("linespace"))
    widthheightlist.append([myfontsize,fontwidth,fontheight])
+
 
 # The 64chars width and 36 chars height of courier font MUST fit in the text widget window "w" x "h". 
 # make a list of fontsizes  which are "less than w" and "less than or equal to h" respectively
@@ -2450,9 +2614,10 @@ for measurement in widthheightlist:
    # Append the FontSize, width (px), height (px), diff(startingwidth-expected overall width), diff(startingheight-expected overall starting height)
    # NB: the factors 1.354 & 1.54 came from measurements of the gui.
    widthheightdiffs.append([measurement[0], measurement[1], measurement[2], startingwidth-(measurement[1]*2*1.354), startingheight-(measurement[2]*36*1.54)])
-
+                          
 # Set horibly small default font and w,h of the text widget
 bestfontsize=2
+root.bestpasswordfontsize=2
 w=50
 h=50
 
@@ -2469,11 +2634,12 @@ for diffs in widthheightdiffs:
 # QR code plus text needs 33 rows.
 # NB: we do this in 'reverse order' from large font size down to small.
 QRlist=[]
-for myfontsize in [18,16,14,12,11,10,9,8,7,6]:
-   font = tkFont.Font(family='courier', size=myfontsize) 
+for myfontsize in [18,16,14,13,12,11,10,9,8,7,6]:
+   font = tkFont.Font(family='courier', size=myfontsize, weight=tkFont.BOLD) 
    (QRwidth,QRheight) = (font.measure("██████████████████████████████████████████████████████████████"),font.metrics("linespace")) 
    if QRwidth < w and QRheight <= h:
       QRlist.append(myfontsize)
+
 # Failing all that, append a tiny font, to make sure there's something in the QRlist!
 QRlist.append(2)
 
@@ -2483,6 +2649,10 @@ bestdonatefontsize=QRlist[0]
 # If the donatefont needs to be smaller, use it as the bestfontsize
 if bestdonatefontsize < bestfontsize:
    bestfontsize=bestdonatefontsize
+
+# Store the bestfontsize in "user_defined_font_size" so it can be altered later..
+user_defined_font_size=bestfontsize
+
 
 # Set initial geometry of window, and also set the values which the user can override.
 frame_width=int(w*2*1.354)
